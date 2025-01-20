@@ -66,6 +66,12 @@ private void GiveItemCommand(IPlayer player, string command, string[] args)
     ItemManager.CreateByName(args[0], 1)?.MoveToContainer(basePlayer.inventory.containerMain);
     player.Reply("Item granted!");
 }
+
+[ChatCommand("giveitem")]
+private void GiveItemCommand(BasePlayer player, string command, string[] args)
+
+[ConsoleCommand("giveitem")]
+private void GiveItemCommand(ConsoleSystem.Arg args)
 ```
 
 ---
