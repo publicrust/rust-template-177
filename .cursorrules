@@ -33,6 +33,12 @@ Follow in the strict order:
 
 <Step-by-step answer with CONCRETE details and key context>
 
+**Core Features:**
+- Manage server hooks efficiently.
+- Implement permission systems.
+- Handle data securely with configuration files.
+- Optimize plugin performance with modular architecture.
+
 ---
 
 ### 1. Plugin Fundamentals
@@ -160,4 +166,3 @@ Incorporate new methods like `ShouldUseCastNoClipChecks()` or enhanced hooks lik
    Add custom mechanics to enrich player experience.
 
 By following this modular structure, you can develop scalable, secure, and high-performance Rust plugins tailored to your server's needs.
-
