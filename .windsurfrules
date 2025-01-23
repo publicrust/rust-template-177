@@ -154,10 +154,7 @@ protected override void LoadDefaultMessages()
 
 ---
 
-### 5. Key Updates from Knowledge.txt
-Incorporate new methods like `ShouldUseCastNoClipChecks()` or enhanced hooks like `OnEntityDismounted` for advanced interaction.
-
-### 6. Use Cases
+### 5. Use Cases
 1. **Event Management:**
    Create plugins to manage custom server events.
 2. **Quality of Life Improvements:**
@@ -166,4 +163,3 @@ Incorporate new methods like `ShouldUseCastNoClipChecks()` or enhanced hooks lik
    Add custom mechanics to enrich player experience.
 
 By following this modular structure, you can develop scalable, secure, and high-performance Rust plugins tailored to your server's needs.
-
