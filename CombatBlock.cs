@@ -33,8 +33,6 @@ namespace Oxide.Plugins
     [Description("Adds a combat block system with a UI component to show the block duration.")]
     public class CombatBlock : RustPlugin
     {
-        private const string CombatBlockUI = "CombatBlockUI";
-        private const string CombatBlockProgress = "CombatBlockProgress";
         private Dictionary<ulong, Timer> combatTimers = new Dictionary<ulong, Timer>();
         private HashSet<ulong> blockedPlayers = new HashSet<ulong>();
 
@@ -93,9 +91,17 @@ namespace Oxide.Plugins
         protected override void LoadConfig()
         {
             base.LoadConfig();
-            config = Config.ReadObject<PluginConfig>();
-            if (config == null)
+            try 
             {
+                config = Config.ReadObject<PluginConfig>();
+                if (config == null)
+                {
+                    LoadDefaultConfig();
+                }
+            }
+            catch (Exception ex)
+            {
+                Puts($"[CombatBlock] Error loading config: {ex.Message}");
                 LoadDefaultConfig();
             }
         }
@@ -113,6 +119,7 @@ namespace Oxide.Plugins
         /// </summary>
         private void Init()
         {
+            LoadConfig();
             ClearAllCombatBlockUI();
         }
 
@@ -121,19 +128,26 @@ namespace Oxide.Plugins
         /// </summary>
         protected override void LoadDefaultMessages()
         {
-            lang.RegisterMessages(new Dictionary<string, string>
+            try
             {
-                ["CombatBlock.Active"] = "Блокировка: {0} секунд",
-                ["CombatBlock.BlockedCommand"] = "Вы не можете использовать эту команду во время боевой блокировки.",
-                ["CombatBlock.UIMessage"] = "Вы не можете использовать эту команду, пока в боевой блокировке."
-            }, this, "ru");
+                lang.RegisterMessages(new Dictionary<string, string>
+                {
+                    ["CombatBlock.Active"] = "Блокировка: {0} секунд",
+                    ["CombatBlock.BlockedCommand"] = "Вы не можете использовать эту команду во время боевой блокировки.",
+                    ["CombatBlock.UIMessage"] = "Вы не можете использовать эту команду, пока в боевой блокировке."
+                }, this, "ru");
 
-            lang.RegisterMessages(new Dictionary<string, string>
+                lang.RegisterMessages(new Dictionary<string, string>
+                {
+                    ["CombatBlock.Active"] = "Combat Block: {0} seconds",
+                    ["CombatBlock.BlockedCommand"] = "You cannot use this command while in combat block.",
+                    ["CombatBlock.UIMessage"] = "You cannot use this command while in combat block."
+                }, this, "en");
+            }
+            catch (Exception ex)
             {
-                ["CombatBlock.Active"] = "Combat Block: {0} seconds",
-                ["CombatBlock.BlockedCommand"] = "You cannot use this command while in combat block.",
-                ["CombatBlock.UIMessage"] = "You cannot use this command while in combat block."
-            }, this, "en");
+                Puts($"[CombatBlock] Error loading messages: {ex.Message}");
+            }
         }
 
         /// <summary>
@@ -178,6 +192,8 @@ namespace Oxide.Plugins
                     combatTimers[playerId].Destroy();
                     combatTimers.Remove(playerId);
                 }
+                // Обновляем UI при обновлении таймера
+                UpdateCombatBlockUI(player, duration);
             }
             else
             {
@@ -216,132 +232,177 @@ namespace Oxide.Plugins
             });
 
             combatTimers[playerId] = uiUpdateTimer;
-            
-            // Обновляем UI только если это новая блокировка
-            if (!blockedPlayers.Contains(playerId))
+        }
+
+        private class CombatBlockUIManager
+        {
+            private const string UIPanel = "CombatBlock.UI";
+            private const string UILabel = "CombatBlock.UI.Label";
+            private const string UIProgress = "CombatBlock.UI.Progress";
+
+            private readonly CombatBlock plugin;
+            private readonly BasePlayer player;
+            private readonly float maxDuration;
+
+            public CombatBlockUIManager(CombatBlock plugin, BasePlayer player, float maxDuration)
             {
-                UpdateCombatBlockUI(player, duration);
+                this.plugin = plugin;
+                this.player = player;
+                this.maxDuration = maxDuration;
+            }
+
+            public void Create(float duration)
+            {
+                if (player == null || !player.IsConnected) 
+                {
+                    return;
+                }
+
+                Destroy();
+
+                var container = new CuiElementContainer();
+                try
+                {
+                    // Background panel
+                    container.Add(new CuiPanel
+                    {
+                        Image = { Color = "0.97 0.92 0.88 0.16" },
+                        RectTransform = { AnchorMin = "0.3447913 0.1135", AnchorMax = "0.640625 0.1435" },
+                        CursorEnabled = false
+                    }, "Hud", UIPanel);
+
+                    AddLabel(container, duration);
+                    AddProgressBar(container, duration);
+
+                    CuiHelper.AddUi(player, container);
+                }
+                catch (Exception ex)
+                {
+                    plugin.Puts($"[CombatBlock] Error creating UI: {ex.Message}");
+                }
+            }
+
+            public void Update(float duration)
+            {
+                if (player == null || !player.IsConnected)
+                {
+                    return;
+                }
+
+                try
+                {
+                    var container = new CuiElementContainer();
+                    AddLabel(container, duration);
+                    AddProgressBar(container, duration);
+
+                    CuiHelper.DestroyUi(player, UIProgress);
+                    CuiHelper.DestroyUi(player, UILabel);
+                    CuiHelper.AddUi(player, container);
+                }
+                catch (Exception ex)
+                {
+                    plugin.Puts($"[CombatBlock] Error updating UI: {ex.Message}");
+                }
+            }
+
+            public void Destroy()
+            {
+                if (player == null || !player.IsConnected) return;
+
+                CuiHelper.DestroyUi(player, UIProgress);
+                CuiHelper.DestroyUi(player, UILabel);
+                CuiHelper.DestroyUi(player, UIPanel);
+            }
+
+            private void AddLabel(CuiElementContainer container, float duration)
+            {
+                try
+                {
+                    var message = plugin.GetMessage("CombatBlock.Active", player, duration);
+                    container.Add(new CuiElement
+                    {
+                        Name = UILabel,
+                        Parent = UIPanel,
+                        Components =
+                        {
+                            new CuiTextComponent 
+                            { 
+                                Text = message,
+                                FontSize = 15, 
+                                Align = TextAnchor.MiddleCenter,
+                                Color = "1 1 1 0.5"
+                            },
+                            new CuiRectTransformComponent { AnchorMin = "0 0", AnchorMax = "1 1" }
+                        }
+                    });
+                }
+                catch (Exception ex)
+                {
+                    plugin.Puts($"[CombatBlock] Error adding label: {ex.Message}");
+                }
+            }
+
+            private void AddProgressBar(CuiElementContainer container, float duration)
+            {
+                float progress = Mathf.Clamp01(duration / maxDuration);
+                container.Add(new CuiElement
+                {
+                    Name = UIProgress,
+                    Parent = UIPanel,
+                    Components =
+                    {
+                        new CuiImageComponent { Color = "0.60 0.80 0.20 0.5" },
+                        new CuiRectTransformComponent { AnchorMin = "0 0", AnchorMax = $"{progress} 0.1" }
+                    }
+                });
             }
         }
 
-        /// <summary>
-        /// Creates the combat block UI for a player
-        /// </summary>
-        /// <param name="player">The player to show the UI to</param>
-        /// <param name="duration">The duration for the combat block</param>
+        private Dictionary<ulong, CombatBlockUIManager> uiManagers = new Dictionary<ulong, CombatBlockUIManager>();
+
         private void CreateCombatBlockUI(BasePlayer player, float duration)
         {
             if (player == null || !player.IsConnected) return;
 
-            // Сначала уничтожаем старый UI если он есть
-            DestroyCombatBlockUI(player);
-
-            CuiElementContainer container = new CuiElementContainer();
-
-            // Background panel
-            container.Add(new CuiPanel
-            {
-                Image = { Color = "0.97 0.92 0.88 0.18" },
-                RectTransform = { AnchorMin = "0.3447913 0.1135", AnchorMax = "0.640625 0.1435" },
-                CursorEnabled = false
-            }, "Hud", CombatBlockUI);
-
-            // Text label
-            container.Add(new CuiElement
-            {
-                Name = CombatBlockUI + ".Label",
-                Parent = CombatBlockUI,
-                Components =
-                {
-                    new CuiTextComponent 
-                    { 
-                        Text = GetMessage("CombatBlock.Active", player, duration), 
-                        FontSize = 15, 
-                        Align = TextAnchor.MiddleCenter,
-                        Color = "1 1 1 1"
-                    },
-                    new CuiRectTransformComponent { AnchorMin = "0 0", AnchorMax = "1 1" }
-                }
-            });
-
-            // Progress bar
-            float progress = Mathf.Clamp01(duration / config.BlockDuration);
-            container.Add(new CuiElement
-            {
-                Name = CombatBlockProgress,
-                Parent = CombatBlockUI,
-                Components =
-                {
-                    new CuiImageComponent { Color = "0.60 0.80 0.20 0.8" },
-                    new CuiRectTransformComponent { AnchorMin = "0 0", AnchorMax = $"{progress} 0.1" }
-                }
-            });
-
-            CuiHelper.AddUi(player, container);
+            var ui = GetOrCreateUIManager(player);
+            ui.Create(duration);
         }
 
-        /// <summary>
-        /// Updates the combat block UI for a player
-        /// </summary>
-        /// <param name="player">The player to update the UI for</param>
-        /// <param name="duration">The remaining duration of the combat block</param>
         private void UpdateCombatBlockUI(BasePlayer player, float duration)
         {
             if (player == null || !player.IsConnected) return;
-            
-            CuiElementContainer container = new CuiElementContainer();
 
-            // Обновляем только текст
-            container.Add(new CuiElement
-            {
-                Name = CombatBlockUI + ".Label",
-                Parent = CombatBlockUI,
-                Components =
-                {
-                    new CuiTextComponent 
-                    { 
-                        Text = GetMessage("CombatBlock.Active", player, duration), 
-                        FontSize = 15, 
-                        Align = TextAnchor.MiddleCenter,
-                        Color = "1 1 1 1"
-                    },
-                    new CuiRectTransformComponent { AnchorMin = "0 0", AnchorMax = "1 1" }
-                }
-            });
-
-            // Обновляем прогресс-бар
-            float progress = Mathf.Clamp01(duration / config.BlockDuration);
-            container.Add(new CuiElement
-            {
-                Name = CombatBlockProgress,
-                Parent = CombatBlockUI,
-                Components =
-                {
-                    new CuiImageComponent { Color = "0.60 0.80 0.20 0.8" },
-                    new CuiRectTransformComponent { AnchorMin = "0 0", AnchorMax = $"{progress} 0.1" }
-                }
-            });
-
-            // Уничтожаем только обновляемые элементы
-            CuiHelper.DestroyUi(player, CombatBlockProgress);
-            CuiHelper.DestroyUi(player, CombatBlockUI + ".Label");
-            
-            // Добавляем обновленные элементы
-            CuiHelper.AddUi(player, container);
+            var ui = GetOrCreateUIManager(player);
+            ui.Update(duration);
         }
 
-        /// <summary>
-        /// Destroys the combat block UI for a player
-        /// </summary>
-        /// <param name="player">The player whose UI should be destroyed</param>
         private void DestroyCombatBlockUI(BasePlayer player)
         {
             if (player == null || !player.IsConnected) return;
-            
-            // Уничтожаем элементы в обратном порядке их создания
-            CuiHelper.DestroyUi(player, CombatBlockProgress);
-            CuiHelper.DestroyUi(player, CombatBlockUI + ".Label");
-            CuiHelper.DestroyUi(player, CombatBlockUI);
+
+            if (uiManagers.TryGetValue(player.userID, out var ui))
+            {
+                ui.Destroy();
+                uiManagers.Remove(player.userID);
+            }
+        }
+
+        private CombatBlockUIManager GetOrCreateUIManager(BasePlayer player)
+        {
+            if (!uiManagers.TryGetValue(player.userID, out var ui))
+            {
+                ui = new CombatBlockUIManager(this, player, config.BlockDuration);
+                uiManagers[player.userID] = ui;
+            }
+            return ui;
+        }
+
+        private void OnPlayerDisconnected(BasePlayer player, string reason)
+        {
+            if (player == null) return;
+
+            DestroyCombatBlockUI(player);
+            uiManagers.Remove(player.userID);
         }
 
         /// <summary>
@@ -351,7 +412,8 @@ namespace Oxide.Plugins
         /// <param name="info">The hit information</param>
         private void OnEntityTakeDamage(BaseCombatEntity entity, HitInfo info)
         {
-            if (entity == null || info?.Initiator == null) return;
+            if (entity == null || info?.Initiator == null) 
+                return;
             
             if (entity is BasePlayer victim && info.Initiator is BasePlayer attacker)
             {
