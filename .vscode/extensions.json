@@ -1,6 +1,5 @@
 {
   "recommendations": [
     "ms-dotnettools.csharp",
-    "publicrust.rust-vscode"
   ]
 }
