@@ -13,7 +13,7 @@ namespace Oxide.Plugins
     public class RaidBlock : RustPlugin
     {
         [PluginReference]
-        private Plugin CombatBlock;
+        private Plugin? CombatBlock;
 
         private Dictionary<ulong, Dictionary<Vector3, Timer>> raidTimers = new Dictionary<ulong, Dictionary<Vector3, Timer>>();
         private Dictionary<ulong, HashSet<Vector3>> playerZones = new Dictionary<ulong, HashSet<Vector3>>();
@@ -28,7 +28,7 @@ namespace Oxide.Plugins
             public float BlockDuration { get; set; }
             public bool BlockOnReceiveRaidDamage { get; set; }
             public bool RemoveBlockOnDeath { get; set; }
-            public List<string> BlockedCommands { get; set; }
+            public required List<string> BlockedCommands { get; set; }
             public float RaidZoneRadius { get; set; }
 
             public bool IsSphereEnabled { get; set; } = true;
@@ -37,7 +37,10 @@ namespace Oxide.Plugins
             public float VisualMultiplier { get; set; } = 1.0f;
         }
 
-        private PluginConfig config;
+        private PluginConfig config = new()
+        {
+            BlockedCommands = new List<string>()
+        };
 
         private class RaidZone
         {
@@ -285,7 +288,7 @@ namespace Oxide.Plugins
             }
         }
 
-        private string GetMessage(string key, BasePlayer player = null, params object[] args)
+        private string GetMessage(string key, BasePlayer? player = null, params object[] args)
         {
             return string.Format(lang.GetMessage(key, this, player?.UserIDString), args);
         }
@@ -553,7 +556,7 @@ namespace Oxide.Plugins
         private void CreateRaidZone(Vector3 position)
         {
             // Проверяем, находится ли новая точка в радиусе существующей зоны
-            RaidZone existingZone = null;
+            RaidZone? existingZone = null;
             foreach (var zone in activeRaidZones)
             {
                 if (Vector3.Distance(zone.Position, position) <= config.RaidZoneRadius/2)
@@ -612,7 +615,7 @@ namespace Oxide.Plugins
 
             string spherePrefab = config.SphereType == 0 ? "assets/prefabs/visualization/sphere.prefab" : "assets/prefabs/visualization/sphere_battleroyale.prefab";
 
-            SphereEntity sphere = GameManager.server.CreateEntity(spherePrefab, position) as SphereEntity;
+            SphereEntity? sphere = GameManager.server.CreateEntity(spherePrefab, position) as SphereEntity;
             if (sphere != null)
             {
                 sphere.enableSaving = false;
@@ -658,7 +661,7 @@ namespace Oxide.Plugins
             DestroyRaidBlockUI(player);
         }
 
-        private object OnPlayerChat(BasePlayer player, string message, ConVar.Chat.ChatChannel channel)
+        private object? OnPlayerChat(BasePlayer player, string message, ConVar.Chat.ChatChannel channel)
         {
             if (player == null || string.IsNullOrEmpty(message)) return null;
 
@@ -674,7 +677,7 @@ namespace Oxide.Plugins
             return null;
         }
 
-        private object OnUserCommand(IPlayer player, string command, string[] args)
+        private object? OnUserCommand(IPlayer player, string command, string[] args)
         {
             if (player?.Object == null || string.IsNullOrEmpty(command)) return null;
             
@@ -743,7 +746,7 @@ namespace Oxide.Plugins
                 return;
             }
 
-            BasePlayer attacker = info.Initiator as BasePlayer;
+            var attacker = info.Initiator as BasePlayer;
             if (attacker == null)
             {
                 return;
@@ -752,12 +755,12 @@ namespace Oxide.Plugins
             // Проверяем, что у объекта есть владелец и что он будет разрушен этим уроном
             if (entity.OwnerID != 0 && (entity.Health() <= info.damageTypes.Total()))
             {
-                BasePlayer victim = entity as BasePlayer;
+                var victim = entity as BasePlayer;
 
                 if (info.damageTypes.Has(DamageType.Explosion) || info.damageTypes.Has(DamageType.Bullet))
                 {
                     Vector3 damagePosition = entity.transform.position;
-                    RaidZone existingZone = null;
+                    RaidZone? existingZone = null;
 
                     // Проверяем, находится ли точка урона в существующей зоне
                     foreach (var zone in activeRaidZones)
@@ -811,11 +814,11 @@ namespace Oxide.Plugins
             }
         }
 
-        private object CanBuild(Planner planner, Construction prefab, Construction.Target target)
+        private object? CanBuild(Planner planner, Construction prefab, Construction.Target target)
         {
             if (planner == null || prefab == null) return null;
 
-            BasePlayer player = planner.GetOwnerPlayer();
+            var player = planner.GetOwnerPlayer();
             if (player == null) return null;
 
             // Получаем позицию строительства
@@ -848,7 +851,7 @@ namespace Oxide.Plugins
             return null;
         }
 
-        private object OnStructureUpgrade(BuildingBlock block, BasePlayer player, BuildingGrade.Enum grade, ulong skinID)
+        private object? OnStructureUpgrade(BuildingBlock block, BasePlayer player, BuildingGrade.Enum grade, ulong skinID)
         {
             if (block == null || player == null) return null;
 

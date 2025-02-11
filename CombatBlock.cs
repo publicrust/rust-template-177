@@ -64,25 +64,27 @@ namespace Oxide.Plugins
             /// <summary>
             /// List of chat commands to block during combat block
             /// </summary>
-            public List<string> BlockedCommands { get; set; }
+            public List<string> BlockedCommands { get; set; } = new List<string>();
+
+            public PluginConfig()
+            {
+                BlockDuration = 10.0f;
+                BlockOnPlayerHit = true;
+                BlockOnReceiveDamage = true;
+                RemoveBlockOnDeath = true;
+                BlockedCommands = new List<string> { "/tpr", "/tpa", "/home" };
+            }
         }
 
-        private PluginConfig config;
+        private PluginConfig config = new();
 
         /// <summary>
         /// Loads the default configuration settings
         /// </summary>
         protected override void LoadDefaultConfig()
         {
-            config = new PluginConfig
-            {
-                BlockDuration = 10.0f,
-                BlockOnPlayerHit = true,
-                BlockOnReceiveDamage = true,
-                RemoveBlockOnDeath = true,
-                BlockedCommands = new List<string> { "/tpr", "/tpa", "/home" }
-            };
-            SaveConfig();
+            config = new PluginConfig();
+            Config.WriteObject(config, true);
         }
 
         /// <summary>
@@ -93,8 +95,22 @@ namespace Oxide.Plugins
             base.LoadConfig();
             try 
             {
-                config = Config.ReadObject<PluginConfig>();
-                if (config == null)
+                var loadedConfig = Config.ReadObject<PluginConfig>();
+                if (loadedConfig != null)
+                {
+                    // Создаем новый экземпляр с дефолтными значениями
+                    var newConfig = new PluginConfig
+                    {
+                        BlockDuration = loadedConfig.BlockDuration,
+                        BlockOnPlayerHit = loadedConfig.BlockOnPlayerHit,
+                        BlockOnReceiveDamage = loadedConfig.BlockOnReceiveDamage,
+                        RemoveBlockOnDeath = loadedConfig.RemoveBlockOnDeath,
+                        BlockedCommands = loadedConfig.BlockedCommands ?? new List<string> { "/tpr", "/tpa", "/home" }
+                    };
+                    
+                    config = newConfig;
+                }
+                else
                 {
                     LoadDefaultConfig();
                 }
@@ -157,7 +173,7 @@ namespace Oxide.Plugins
         /// <param name="player">The player to retrieve the message for</param>
         /// <param name="args">Arguments to format into the message</param>
         /// <returns>The localized and formatted message</returns>
-        private string GetMessage(string key, BasePlayer player = null, params object[] args)
+        private string GetMessage(string key, BasePlayer? player = null, params object[] args)
         {
             return string.Format(lang.GetMessage(key, this, player?.UserIDString), args);
         }
@@ -203,7 +219,7 @@ namespace Oxide.Plugins
             }
 
             float remainingTime = duration;
-            Timer uiUpdateTimer = null;
+            Timer? uiUpdateTimer = null;
 
             // Создаем один таймер для обновления UI
             uiUpdateTimer = timer.Repeat(1f, (int)duration, () =>
@@ -452,13 +468,13 @@ namespace Oxide.Plugins
         /// <param name="message">The command message</param>
         /// <param name="channel">The chat channel</param>
         /// <returns>Returns false to block the command, otherwise null</returns>
-        private object OnPlayerChat(BasePlayer player, string message, ConVar.Chat.ChatChannel channel)
+        private object? OnPlayerChat(BasePlayer player, string message, ConVar.Chat.ChatChannel channel)
         {
             if (player == null || string.IsNullOrEmpty(message)) return null;
 
             if (blockedPlayers.Contains(player.userID))
             {
-                if (message != null && config.BlockedCommands.Exists(cmd => cmd != null && message.StartsWith(cmd, StringComparison.OrdinalIgnoreCase)))
+                if (config.BlockedCommands.Exists(cmd => cmd != null && message.StartsWith(cmd, StringComparison.OrdinalIgnoreCase)))
                 {
                     player.ChatMessage(GetMessage("CombatBlock.BlockedCommand", player));
                     return false;
@@ -475,23 +491,20 @@ namespace Oxide.Plugins
         /// <param name="command">The command name</param>
         /// <param name="args">The command arguments</param>
         /// <returns>Returns false to block the command, otherwise null</returns>
-        private object OnUserCommand(IPlayer player, string command, string[] args)
+        private object? OnUserCommand(IPlayer player, string command, string[] args)
         {
-            if (player?.Object == null) return null;
+            if (player?.Object == null || string.IsNullOrEmpty(command)) return null;
             
             var basePlayer = player.Object as BasePlayer;
             if (basePlayer == null) return null;
 
             if (blockedPlayers.Contains(basePlayer.userID))
             {
-                if (command != null)
+                command = "/" + command.ToLower();
+                if (config.BlockedCommands.Contains(command))
                 {
-                    command = "/" + command.ToLowerInvariant();
-                    if (config.BlockedCommands.Contains(command))
-                    {
-                        basePlayer.ChatMessage(GetMessage("CombatBlock.UIMessage", basePlayer));
-                        return false;
-                    }
+                    basePlayer.ChatMessage(GetMessage("CombatBlock.UIMessage", basePlayer));
+                    return false;
                 }
             }
 
@@ -507,6 +520,24 @@ namespace Oxide.Plugins
         public bool HasCombatBlock(ulong playerID)
         {
             return blockedPlayers.Contains(playerID);
+        }
+
+        private void OnServerInitialized(bool initial)
+        {
+            config = Config.ReadObject<PluginConfig>();
+            if (config == null)
+            {
+                config = new PluginConfig
+                {
+                    BlockDuration = 10.0f,
+                    BlockOnPlayerHit = true,
+                    BlockOnReceiveDamage = true,
+                    RemoveBlockOnDeath = true,
+                    BlockedCommands = new List<string> { "/tpr", "/tpa", "/home" }
+                };
+                Config.WriteObject(config, true);
+            }
+            ClearAllCombatBlockUI();
         }
     }
 }
