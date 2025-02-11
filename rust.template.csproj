@@ -6,6 +6,7 @@
     <NoWarn>MSB3277</NoWarn>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <RustVersion>LastVersion</RustVersion>
+    <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
     <CompilerVisibleProperty Include="RustVersion" />
