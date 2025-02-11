@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using Oxide.Core.Libraries.Covalence;
 using Oxide.Core.Plugins;
 using Oxide.Game.Rust.Cui;
@@ -32,7 +33,7 @@ namespace Oxide.Plugins
             public float RaidZoneRadius { get; set; }
 
             public bool IsSphereEnabled { get; set; } = true;
-            public int SphereType { get; set; } = 0;
+            public int SphereType { get; set; }
             public int DomeTransparencyLevel { get; set; } = 3;
             public float VisualMultiplier { get; set; } = 1.0f;
         }
@@ -90,9 +91,17 @@ namespace Oxide.Plugins
 
                     CuiHelper.AddUi(player, container);
                 }
-                catch (Exception ex)
+                catch (ArgumentException ex)
                 {
-                    plugin.Puts($"Error creating UI: {ex.Message}");
+                    plugin.Puts($"[RaidBlock] Invalid UI parameters: {ex.Message}");
+                }
+                catch (InvalidOperationException ex)
+                {
+                    plugin.Puts($"[RaidBlock] UI operation error: {ex.Message}");
+                }
+                catch (NullReferenceException ex)
+                {
+                    plugin.Puts($"[RaidBlock] UI component not found: {ex.Message}");
                 }
             }
 
@@ -113,9 +122,17 @@ namespace Oxide.Plugins
                     CuiHelper.DestroyUi(player, UILabel);
                     CuiHelper.AddUi(player, container);
                 }
-                catch (Exception ex)
+                catch (ArgumentException ex)
                 {
-                    plugin.Puts($"Error updating UI: {ex.Message}");
+                    plugin.Puts($"[RaidBlock] Invalid UI parameters: {ex.Message}");
+                }
+                catch (InvalidOperationException ex)
+                {
+                    plugin.Puts($"[RaidBlock] UI operation error: {ex.Message}");
+                }
+                catch (NullReferenceException ex)
+                {
+                    plugin.Puts($"[RaidBlock] UI component not found: {ex.Message}");
                 }
             }
 
@@ -150,9 +167,17 @@ namespace Oxide.Plugins
                         }
                     });
                 }
-                catch (Exception ex)
+                catch (ArgumentException ex)
                 {
-                    plugin.Puts($"Error adding label: {ex.Message}");
+                    plugin.Puts($"[RaidBlock] Invalid label parameters: {ex.Message}");
+                }
+                catch (InvalidOperationException ex)
+                {
+                    plugin.Puts($"[RaidBlock] Label operation error: {ex.Message}");
+                }
+                catch (NullReferenceException ex)
+                {
+                    plugin.Puts($"[RaidBlock] Label component not found: {ex.Message}");
                 }
             }
 
@@ -263,34 +288,39 @@ namespace Oxide.Plugins
         {
             try
             {
-                var ruMessages = new Dictionary<string, string>
+                lang.RegisterMessages(new Dictionary<string, string>
                 {
                     ["RaidBlock.Active"] = "Блокировка рейда: {0} сек",
                     ["RaidBlock.BlockedCommand"] = "Вы не можете использовать эту команду во время блокировки рейда",
                     ["RaidBlock.UIMessage"] = "Вы не можете использовать эту команду во время блокировки рейда",
                     ["RaidBlock.NoBuild"] = "Вы не можете строить в зоне рейда"
-                };
+                }, this, "ru");
 
-                var enMessages = new Dictionary<string, string>
+                lang.RegisterMessages(new Dictionary<string, string>
                 {
                     ["RaidBlock.Active"] = "Raid Block: {0} sec",
                     ["RaidBlock.BlockedCommand"] = "You cannot use this command while in raid block",
                     ["RaidBlock.UIMessage"] = "You cannot use this command while in raid block",
                     ["RaidBlock.NoBuild"] = "You cannot build in the raid zone"
-                };
-
-                lang.RegisterMessages(ruMessages, this, "ru");
-                lang.RegisterMessages(enMessages, this, "en");
+                }, this, "en");
             }
-            catch (Exception ex)
+            catch (ArgumentException ex)
             {
-                Puts($"Error loading messages: {ex.Message}");
+                Puts($"[RaidBlock] Invalid message format: {ex.Message}");
+            }
+            catch (InvalidOperationException ex)
+            {
+                Puts($"[RaidBlock] Message registration error: {ex.Message}");
+            }
+            catch (KeyNotFoundException ex)
+            {
+                Puts($"[RaidBlock] Message key not found: {ex.Message}");
             }
         }
 
         private string GetMessage(string key, BasePlayer? player = null, params object[] args)
         {
-            return string.Format(lang.GetMessage(key, this, player?.UserIDString), args);
+            return string.Format(CultureInfo.InvariantCulture, lang.GetMessage(key, this, player?.UserIDString), args);
         }
 
         private void ClearAllRaidBlockUI()
@@ -386,26 +416,26 @@ namespace Oxide.Plugins
 
             ulong playerId = player.userID;
             
-            // Всегда используем новую длительность при взрыве
-            if (!checkSaved)
-            {
-                duration = config.BlockDuration;
-            }
-            // Проверяем сохраненное время только если это не новый взрыв
-            else if (checkSaved && savedBlockTimes.ContainsKey(playerId) && savedBlockTimes[playerId].ContainsKey(zonePosition))
-            {
-                duration = savedBlockTimes[playerId][zonePosition];
-                savedBlockTimes[playerId].Remove(zonePosition);
-                if (savedBlockTimes[playerId].Count == 0)
-                    savedBlockTimes.Remove(playerId);
-            }
-            else
-            {
-                duration = config.BlockDuration;
-            }
-
             try
             {
+                // Всегда используем новую длительность при взрыве
+                if (!checkSaved)
+                {
+                    duration = config.BlockDuration;
+                }
+                // Проверяем сохраненное время только если это не новый взрыв
+                else if (checkSaved && savedBlockTimes.ContainsKey(playerId) && savedBlockTimes[playerId].ContainsKey(zonePosition))
+                {
+                    duration = savedBlockTimes[playerId][zonePosition];
+                    savedBlockTimes[playerId].Remove(zonePosition);
+                    if (savedBlockTimes[playerId].Count == 0)
+                        savedBlockTimes.Remove(playerId);
+                }
+                else
+                {
+                    duration = config.BlockDuration;
+                }
+
                 if (!raidTimers.ContainsKey(playerId))
                     raidTimers[playerId] = new Dictionary<Vector3, Timer>();
                     
@@ -460,9 +490,17 @@ namespace Oxide.Plugins
                     }
                 });
             }
-            catch (Exception ex)
+            catch (ArgumentException ex)
             {
-                Puts($"Error adding block to {player.displayName} for zone {zonePosition}: {ex.Message}");
+                Puts($"[RaidBlock] Invalid raid block parameters: {ex.Message}");
+            }
+            catch (InvalidOperationException ex)
+            {
+                Puts($"[RaidBlock] Raid block operation error: {ex.Message}");
+            }
+            catch (NullReferenceException ex)
+            {
+                Puts($"[RaidBlock] Raid block component not found: {ex.Message}");
             }
         }
 
@@ -679,14 +717,12 @@ namespace Oxide.Plugins
 
         private object? OnUserCommand(IPlayer player, string command, string[] args)
         {
-            if (player?.Object == null || string.IsNullOrEmpty(command)) return null;
-            
-            var basePlayer = player.Object as BasePlayer;
-            if (basePlayer == null) return null;
+            if (player?.Object is not BasePlayer basePlayer)
+                return null;
 
             if (remainingTimes.ContainsKey(basePlayer.userID) && remainingTimes[basePlayer.userID].Count > 0)
             {
-                command = "/" + command.ToLower();
+                command = "/" + command.ToUpperInvariant();
                 if (config.BlockedCommands.Contains(command))
                 {
                     basePlayer.ChatMessage(GetMessage("RaidBlock.UIMessage", basePlayer));
@@ -746,8 +782,7 @@ namespace Oxide.Plugins
                 return;
             }
 
-            var attacker = info.Initiator as BasePlayer;
-            if (attacker == null)
+            if (info.Initiator is not BasePlayer attacker)
             {
                 return;
             }

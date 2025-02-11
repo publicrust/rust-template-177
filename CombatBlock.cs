@@ -22,6 +22,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using Oxide.Core.Libraries.Covalence;
 using Oxide.Core.Plugins;
 using Oxide.Game.Rust.Cui;
@@ -115,9 +116,19 @@ namespace Oxide.Plugins
                     LoadDefaultConfig();
                 }
             }
-            catch (Exception ex)
+            catch (FormatException ex)
             {
-                Puts($"[CombatBlock] Error loading config: {ex.Message}");
+                Puts($"[CombatBlock] Invalid config format: {ex.Message}");
+                LoadDefaultConfig();
+            }
+            catch (ArgumentException ex)
+            {
+                Puts($"[CombatBlock] Invalid config argument: {ex.Message}");
+                LoadDefaultConfig();
+            }
+            catch (InvalidOperationException ex)
+            {
+                Puts($"[CombatBlock] Config operation error: {ex.Message}");
                 LoadDefaultConfig();
             }
         }
@@ -160,9 +171,17 @@ namespace Oxide.Plugins
                     ["CombatBlock.UIMessage"] = "You cannot use this command while in combat block."
                 }, this, "en");
             }
-            catch (Exception ex)
+            catch (ArgumentException ex)
             {
-                Puts($"[CombatBlock] Error loading messages: {ex.Message}");
+                Puts($"[CombatBlock] Invalid message format: {ex.Message}");
+            }
+            catch (InvalidOperationException ex)
+            {
+                Puts($"[CombatBlock] Message registration error: {ex.Message}");
+            }
+            catch (KeyNotFoundException ex)
+            {
+                Puts($"[CombatBlock] Message key not found: {ex.Message}");
             }
         }
 
@@ -175,7 +194,7 @@ namespace Oxide.Plugins
         /// <returns>The localized and formatted message</returns>
         private string GetMessage(string key, BasePlayer? player = null, params object[] args)
         {
-            return string.Format(lang.GetMessage(key, this, player?.UserIDString), args);
+            return string.Format(CultureInfo.InvariantCulture, lang.GetMessage(key, this, player?.UserIDString), args);
         }
 
         /// <summary>
@@ -292,9 +311,17 @@ namespace Oxide.Plugins
 
                     CuiHelper.AddUi(player, container);
                 }
-                catch (Exception ex)
+                catch (ArgumentException ex)
                 {
-                    plugin.Puts($"[CombatBlock] Error creating UI: {ex.Message}");
+                    plugin.Puts($"[CombatBlock] Invalid UI parameters: {ex.Message}");
+                }
+                catch (InvalidOperationException ex)
+                {
+                    plugin.Puts($"[CombatBlock] UI operation error: {ex.Message}");
+                }
+                catch (NullReferenceException ex)
+                {
+                    plugin.Puts($"[CombatBlock] UI component not found: {ex.Message}");
                 }
             }
 
@@ -315,9 +342,17 @@ namespace Oxide.Plugins
                     CuiHelper.DestroyUi(player, UILabel);
                     CuiHelper.AddUi(player, container);
                 }
-                catch (Exception ex)
+                catch (ArgumentException ex)
                 {
-                    plugin.Puts($"[CombatBlock] Error updating UI: {ex.Message}");
+                    plugin.Puts($"[CombatBlock] Invalid UI parameters: {ex.Message}");
+                }
+                catch (InvalidOperationException ex)
+                {
+                    plugin.Puts($"[CombatBlock] UI operation error: {ex.Message}");
+                }
+                catch (NullReferenceException ex)
+                {
+                    plugin.Puts($"[CombatBlock] UI component not found: {ex.Message}");
                 }
             }
 
@@ -334,7 +369,7 @@ namespace Oxide.Plugins
             {
                 try
                 {
-                    var message = plugin.GetMessage("CombatBlock.Active", player, duration);
+                    var message = plugin.GetMessage("CombatBlock.Active", player, (int)duration);
                     container.Add(new CuiElement
                     {
                         Name = UILabel,
@@ -352,9 +387,17 @@ namespace Oxide.Plugins
                         }
                     });
                 }
-                catch (Exception ex)
+                catch (ArgumentException ex)
                 {
-                    plugin.Puts($"[CombatBlock] Error adding label: {ex.Message}");
+                    plugin.Puts($"[CombatBlock] Invalid label parameters: {ex.Message}");
+                }
+                catch (InvalidOperationException ex)
+                {
+                    plugin.Puts($"[CombatBlock] Label operation error: {ex.Message}");
+                }
+                catch (NullReferenceException ex)
+                {
+                    plugin.Puts($"[CombatBlock] Label component not found: {ex.Message}");
                 }
             }
 
@@ -493,14 +536,12 @@ namespace Oxide.Plugins
         /// <returns>Returns false to block the command, otherwise null</returns>
         private object? OnUserCommand(IPlayer player, string command, string[] args)
         {
-            if (player?.Object == null || string.IsNullOrEmpty(command)) return null;
-            
-            var basePlayer = player.Object as BasePlayer;
-            if (basePlayer == null) return null;
+            if (player?.Object is not BasePlayer basePlayer)
+                return null;
 
             if (blockedPlayers.Contains(basePlayer.userID))
             {
-                command = "/" + command.ToLower();
+                command = "/" + command.ToUpperInvariant();
                 if (config.BlockedCommands.Contains(command))
                 {
                     basePlayer.ChatMessage(GetMessage("CombatBlock.UIMessage", basePlayer));
