@@ -1,6 +1,5 @@
 {
   "recommendations": [
     "ms-dotnettools.csharp",
-    "csharpier.csharpier-vscode"
   ]
 }
