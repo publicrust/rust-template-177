@@ -34,8 +34,8 @@ namespace Oxide.Plugins
     [Description("Adds a combat block system with a UI component to show the block duration.")]
     public class CombatBlock : RustPlugin
     {
-        private Dictionary<ulong, Timer> combatTimers = new Dictionary<ulong, Timer>();
-        private HashSet<ulong> blockedPlayers = new HashSet<ulong>();
+        private readonly Dictionary<ulong, Timer> combatTimers = new();
+        private readonly HashSet<ulong> blockedPlayers = new();
 
         /// <summary>
         /// Configuration class for the CombatBlock plugin
@@ -94,13 +94,13 @@ namespace Oxide.Plugins
         protected override void LoadConfig()
         {
             base.LoadConfig();
-            try 
+            try
             {
-                var loadedConfig = Config.ReadObject<PluginConfig>();
+                PluginConfig loadedConfig = Config.ReadObject<PluginConfig>();
                 if (loadedConfig != null)
                 {
                     // Создаем новый экземпляр с дефолтными значениями
-                    var newConfig = new PluginConfig
+                    PluginConfig newConfig = new()
                     {
                         BlockDuration = loadedConfig.BlockDuration,
                         BlockOnPlayerHit = loadedConfig.BlockOnPlayerHit,
@@ -108,7 +108,7 @@ namespace Oxide.Plugins
                         RemoveBlockOnDeath = loadedConfig.RemoveBlockOnDeath,
                         BlockedCommands = loadedConfig.BlockedCommands ?? new List<string> { "/tpr", "/tpa", "/home" }
                     };
-                    
+
                     config = newConfig;
                 }
                 else
@@ -202,7 +202,7 @@ namespace Oxide.Plugins
         /// </summary>
         private void ClearAllCombatBlockUI()
         {
-            foreach (var player in BasePlayer.activePlayerList)
+            foreach (BasePlayer? player in BasePlayer.activePlayerList)
             {
                 DestroyCombatBlockUI(player);
             }
@@ -215,8 +215,11 @@ namespace Oxide.Plugins
         /// <param name="duration">The duration of the combat block in seconds</param>
         private void AddCombatBlock(BasePlayer player, float duration)
         {
-            if (player == null || !player.IsConnected) return;
-            
+            if (player == null || !player.IsConnected)
+            {
+                return;
+            }
+
             ulong playerId = player.userID;
 
             // Если у игрока уже есть блокировка, обновляем только таймер
@@ -225,7 +228,7 @@ namespace Oxide.Plugins
                 if (combatTimers.ContainsKey(playerId))
                 {
                     combatTimers[playerId].Destroy();
-                    combatTimers.Remove(playerId);
+                    _ = combatTimers.Remove(playerId);
                 }
                 // Обновляем UI при обновлении таймера
                 UpdateCombatBlockUI(player, duration);
@@ -233,7 +236,7 @@ namespace Oxide.Plugins
             else
             {
                 // Только если игрок не был заблокирован, добавляем его в список и создаем UI
-                blockedPlayers.Add(playerId);
+                _ = blockedPlayers.Add(playerId);
                 CreateCombatBlockUI(player, duration);
             }
 
@@ -243,21 +246,21 @@ namespace Oxide.Plugins
             // Создаем один таймер для обновления UI
             uiUpdateTimer = timer.Repeat(1f, (int)duration, () =>
             {
-                if (player == null || !player.IsConnected) 
+                if (player == null || !player.IsConnected)
                 {
                     uiUpdateTimer?.Destroy();
-                    blockedPlayers.Remove(playerId);
-                    combatTimers.Remove(playerId);
+                    _ = blockedPlayers.Remove(playerId);
+                    _ = combatTimers.Remove(playerId);
                     return;
                 }
 
                 remainingTime--;
-                
+
                 if (remainingTime <= 0)
                 {
                     DestroyCombatBlockUI(player);
-                    blockedPlayers.Remove(playerId);
-                    combatTimers.Remove(playerId);
+                    _ = blockedPlayers.Remove(playerId);
+                    _ = combatTimers.Remove(playerId);
                     uiUpdateTimer?.Destroy();
                 }
                 else
@@ -288,18 +291,18 @@ namespace Oxide.Plugins
 
             public void Create(float duration)
             {
-                if (player == null || !player.IsConnected) 
+                if (player == null || !player.IsConnected)
                 {
                     return;
                 }
 
                 Destroy();
 
-                var container = new CuiElementContainer();
+                CuiElementContainer container = new();
                 try
                 {
                     // Background panel
-                    container.Add(new CuiPanel
+                    _ = container.Add(new CuiPanel
                     {
                         Image = { Color = "0.97 0.92 0.88 0.16" },
                         RectTransform = { AnchorMin = "0.3447913 0.1135", AnchorMax = "0.640625 0.1435" },
@@ -309,7 +312,7 @@ namespace Oxide.Plugins
                     AddLabel(container, duration);
                     AddProgressBar(container, duration);
 
-                    CuiHelper.AddUi(player, container);
+                    _ = CuiHelper.AddUi(player, container);
                 }
                 catch (ArgumentException ex)
                 {
@@ -334,13 +337,13 @@ namespace Oxide.Plugins
 
                 try
                 {
-                    var container = new CuiElementContainer();
+                    CuiElementContainer container = new();
                     AddLabel(container, duration);
                     AddProgressBar(container, duration);
 
-                    CuiHelper.DestroyUi(player, UIProgress);
-                    CuiHelper.DestroyUi(player, UILabel);
-                    CuiHelper.AddUi(player, container);
+                    _ = CuiHelper.DestroyUi(player, UIProgress);
+                    _ = CuiHelper.DestroyUi(player, UILabel);
+                    _ = CuiHelper.AddUi(player, container);
                 }
                 catch (ArgumentException ex)
                 {
@@ -358,28 +361,31 @@ namespace Oxide.Plugins
 
             public void Destroy()
             {
-                if (player == null || !player.IsConnected) return;
+                if (player == null || !player.IsConnected)
+                {
+                    return;
+                }
 
-                CuiHelper.DestroyUi(player, UIProgress);
-                CuiHelper.DestroyUi(player, UILabel);
-                CuiHelper.DestroyUi(player, UIPanel);
+                _ = CuiHelper.DestroyUi(player, UIProgress);
+                _ = CuiHelper.DestroyUi(player, UILabel);
+                _ = CuiHelper.DestroyUi(player, UIPanel);
             }
 
             private void AddLabel(CuiElementContainer container, float duration)
             {
                 try
                 {
-                    var message = plugin.GetMessage("CombatBlock.Active", player, (int)duration);
+                    string message = plugin.GetMessage("CombatBlock.Active", player, (int)duration);
                     container.Add(new CuiElement
                     {
                         Name = UILabel,
                         Parent = UIPanel,
                         Components =
                         {
-                            new CuiTextComponent 
-                            { 
+                            new CuiTextComponent
+                            {
                                 Text = message,
-                                FontSize = 15, 
+                                FontSize = 15,
                                 Align = TextAnchor.MiddleCenter,
                                 Color = "1 1 1 0.5"
                             },
@@ -417,38 +423,47 @@ namespace Oxide.Plugins
             }
         }
 
-        private Dictionary<ulong, CombatBlockUIManager> uiManagers = new Dictionary<ulong, CombatBlockUIManager>();
+        private readonly Dictionary<ulong, CombatBlockUIManager> uiManagers = new();
 
         private void CreateCombatBlockUI(BasePlayer player, float duration)
         {
-            if (player == null || !player.IsConnected) return;
+            if (player == null || !player.IsConnected)
+            {
+                return;
+            }
 
-            var ui = GetOrCreateUIManager(player);
+            CombatBlockUIManager ui = GetOrCreateUIManager(player);
             ui.Create(duration);
         }
 
         private void UpdateCombatBlockUI(BasePlayer player, float duration)
         {
-            if (player == null || !player.IsConnected) return;
+            if (player == null || !player.IsConnected)
+            {
+                return;
+            }
 
-            var ui = GetOrCreateUIManager(player);
+            CombatBlockUIManager ui = GetOrCreateUIManager(player);
             ui.Update(duration);
         }
 
         private void DestroyCombatBlockUI(BasePlayer player)
         {
-            if (player == null || !player.IsConnected) return;
+            if (player == null || !player.IsConnected)
+            {
+                return;
+            }
 
-            if (uiManagers.TryGetValue(player.userID, out var ui))
+            if (uiManagers.TryGetValue(player.userID, out CombatBlockUIManager? ui))
             {
                 ui.Destroy();
-                uiManagers.Remove(player.userID);
+                _ = uiManagers.Remove(player.userID);
             }
         }
 
         private CombatBlockUIManager GetOrCreateUIManager(BasePlayer player)
         {
-            if (!uiManagers.TryGetValue(player.userID, out var ui))
+            if (!uiManagers.TryGetValue(player.userID, out CombatBlockUIManager? ui))
             {
                 ui = new CombatBlockUIManager(this, player, config.BlockDuration);
                 uiManagers[player.userID] = ui;
@@ -458,10 +473,13 @@ namespace Oxide.Plugins
 
         private void OnPlayerDisconnected(BasePlayer player, string reason)
         {
-            if (player == null) return;
+            if (player == null)
+            {
+                return;
+            }
 
             DestroyCombatBlockUI(player);
-            uiManagers.Remove(player.userID);
+            _ = uiManagers.Remove(player.userID);
         }
 
         /// <summary>
@@ -471,9 +489,11 @@ namespace Oxide.Plugins
         /// <param name="info">The hit information</param>
         private void OnEntityTakeDamage(BaseCombatEntity entity, HitInfo info)
         {
-            if (entity == null || info?.Initiator == null) 
+            if (entity == null || info?.Initiator == null)
+            {
                 return;
-            
+            }
+
             if (entity is BasePlayer victim && info.Initiator is BasePlayer attacker)
             {
                 if (victim != attacker && config.BlockOnReceiveDamage)
@@ -495,12 +515,15 @@ namespace Oxide.Plugins
         /// <param name="info">The hit information</param>
         private void OnPlayerDeath(BasePlayer player, HitInfo info)
         {
-            if (player == null) return;
-            
+            if (player == null)
+            {
+                return;
+            }
+
             if (config.RemoveBlockOnDeath)
             {
                 DestroyCombatBlockUI(player);
-                blockedPlayers.Remove(player.userID);
+                _ = blockedPlayers.Remove(player.userID);
             }
         }
 
@@ -513,7 +536,10 @@ namespace Oxide.Plugins
         /// <returns>Returns false to block the command, otherwise null</returns>
         private object? OnPlayerChat(BasePlayer player, string message, ConVar.Chat.ChatChannel channel)
         {
-            if (player == null || string.IsNullOrEmpty(message)) return null;
+            if (player == null || string.IsNullOrEmpty(message))
+            {
+                return null;
+            }
 
             if (blockedPlayers.Contains(player.userID))
             {
@@ -537,7 +563,9 @@ namespace Oxide.Plugins
         private object? OnUserCommand(IPlayer player, string command, string[] args)
         {
             if (player?.Object is not BasePlayer basePlayer)
+            {
                 return null;
+            }
 
             if (blockedPlayers.Contains(basePlayer.userID))
             {
