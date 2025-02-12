@@ -1,19 +1,19 @@
 /// <summary>
 /// CombatBlock Plugin
-/// 
+///
 /// This plugin adds a combat block system to Rust servers, preventing players from using certain commands during combat.
 /// It displays a UI component to show the remaining duration of the combat block.
-/// 
+///
 /// Configuration:
 /// - BlockDuration (float): Duration of the combat block in seconds.
 /// - BlockOnPlayerHit (bool): Apply combat block when hitting another player.
 /// - BlockOnReceiveDamage (bool): Apply combat block when receiving damage from another player.
 /// - RemoveBlockOnDeath (bool): Remove combat block when the player dies.
 /// - BlockedCommands (List<string>): List of chat commands that should be blocked during combat block.
-/// 
+///
 /// API:
 /// - HasCombatBlock(ulong playerID): Returns a boolean indicating whether the specified player has an active combat block.
-/// 
+///
 /// For more information, visit the plugin's page: https://foxplugins.ru/resources/combatblock.105/
 /// Discord: https://discord.gg/sv6nF3gNU3
 /// RustGPT: https://chatgpt.com/g/g-xunzDbv9b-rustgpt
@@ -106,7 +106,9 @@ namespace Oxide.Plugins
                         BlockOnPlayerHit = loadedConfig.BlockOnPlayerHit,
                         BlockOnReceiveDamage = loadedConfig.BlockOnReceiveDamage,
                         RemoveBlockOnDeath = loadedConfig.RemoveBlockOnDeath,
-                        BlockedCommands = loadedConfig.BlockedCommands ?? new List<string> { "/tpr", "/tpa", "/home" }
+                        BlockedCommands =
+                            loadedConfig.BlockedCommands
+                            ?? new List<string> { "/tpr", "/tpa", "/home" },
                     };
 
                     config = newConfig;
@@ -157,19 +159,31 @@ namespace Oxide.Plugins
         {
             try
             {
-                lang.RegisterMessages(new Dictionary<string, string>
-                {
-                    ["CombatBlock.Active"] = "Блокировка: {0} секунд",
-                    ["CombatBlock.BlockedCommand"] = "Вы не можете использовать эту команду во время боевой блокировки.",
-                    ["CombatBlock.UIMessage"] = "Вы не можете использовать эту команду, пока в боевой блокировке."
-                }, this, "ru");
+                lang.RegisterMessages(
+                    new Dictionary<string, string>
+                    {
+                        ["CombatBlock.Active"] = "Блокировка: {0} секунд",
+                        ["CombatBlock.BlockedCommand"] =
+                            "Вы не можете использовать эту команду во время боевой блокировки.",
+                        ["CombatBlock.UIMessage"] =
+                            "Вы не можете использовать эту команду, пока в боевой блокировке.",
+                    },
+                    this,
+                    "ru"
+                );
 
-                lang.RegisterMessages(new Dictionary<string, string>
-                {
-                    ["CombatBlock.Active"] = "Combat Block: {0} seconds",
-                    ["CombatBlock.BlockedCommand"] = "You cannot use this command while in combat block.",
-                    ["CombatBlock.UIMessage"] = "You cannot use this command while in combat block."
-                }, this, "en");
+                lang.RegisterMessages(
+                    new Dictionary<string, string>
+                    {
+                        ["CombatBlock.Active"] = "Combat Block: {0} seconds",
+                        ["CombatBlock.BlockedCommand"] =
+                            "You cannot use this command while in combat block.",
+                        ["CombatBlock.UIMessage"] =
+                            "You cannot use this command while in combat block.",
+                    },
+                    this,
+                    "en"
+                );
             }
             catch (ArgumentException ex)
             {
@@ -194,7 +208,11 @@ namespace Oxide.Plugins
         /// <returns>The localized and formatted message</returns>
         private string GetMessage(string key, BasePlayer? player = null, params object[] args)
         {
-            return string.Format(CultureInfo.InvariantCulture, lang.GetMessage(key, this, player?.UserIDString), args);
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                lang.GetMessage(key, this, player?.UserIDString),
+                args
+            );
         }
 
         /// <summary>
@@ -244,30 +262,34 @@ namespace Oxide.Plugins
             Timer? uiUpdateTimer = null;
 
             // Создаем один таймер для обновления UI
-            uiUpdateTimer = timer.Repeat(1f, (int)duration, () =>
-            {
-                if (player == null || !player.IsConnected)
+            uiUpdateTimer = timer.Repeat(
+                1f,
+                (int)duration,
+                () =>
                 {
-                    uiUpdateTimer?.Destroy();
-                    _ = blockedPlayers.Remove(playerId);
-                    _ = combatTimers.Remove(playerId);
-                    return;
-                }
+                    if (player == null || !player.IsConnected)
+                    {
+                        uiUpdateTimer?.Destroy();
+                        _ = blockedPlayers.Remove(playerId);
+                        _ = combatTimers.Remove(playerId);
+                        return;
+                    }
 
-                remainingTime--;
+                    remainingTime--;
 
-                if (remainingTime <= 0)
-                {
-                    DestroyCombatBlockUI(player);
-                    _ = blockedPlayers.Remove(playerId);
-                    _ = combatTimers.Remove(playerId);
-                    uiUpdateTimer?.Destroy();
+                    if (remainingTime <= 0)
+                    {
+                        DestroyCombatBlockUI(player);
+                        _ = blockedPlayers.Remove(playerId);
+                        _ = combatTimers.Remove(playerId);
+                        uiUpdateTimer?.Destroy();
+                    }
+                    else
+                    {
+                        UpdateCombatBlockUI(player, remainingTime);
+                    }
                 }
-                else
-                {
-                    UpdateCombatBlockUI(player, remainingTime);
-                }
-            });
+            );
 
             combatTimers[playerId] = uiUpdateTimer;
         }
@@ -302,12 +324,20 @@ namespace Oxide.Plugins
                 try
                 {
                     // Background panel
-                    _ = container.Add(new CuiPanel
-                    {
-                        Image = { Color = "0.97 0.92 0.88 0.16" },
-                        RectTransform = { AnchorMin = "0.3447913 0.1135", AnchorMax = "0.640625 0.1435" },
-                        CursorEnabled = false
-                    }, "Hud", UIPanel);
+                    _ = container.Add(
+                        new CuiPanel
+                        {
+                            Image = { Color = "0.97 0.92 0.88 0.16" },
+                            RectTransform =
+                            {
+                                AnchorMin = "0.3447913 0.1135",
+                                AnchorMax = "0.640625 0.1435",
+                            },
+                            CursorEnabled = false,
+                        },
+                        "Hud",
+                        UIPanel
+                    );
 
                     AddLabel(container, duration);
                     AddProgressBar(container, duration);
@@ -376,22 +406,28 @@ namespace Oxide.Plugins
                 try
                 {
                     string message = plugin.GetMessage("CombatBlock.Active", player, (int)duration);
-                    container.Add(new CuiElement
-                    {
-                        Name = UILabel,
-                        Parent = UIPanel,
-                        Components =
+                    container.Add(
+                        new CuiElement
                         {
-                            new CuiTextComponent
+                            Name = UILabel,
+                            Parent = UIPanel,
+                            Components =
                             {
-                                Text = message,
-                                FontSize = 15,
-                                Align = TextAnchor.MiddleCenter,
-                                Color = "1 1 1 0.5"
+                                new CuiTextComponent
+                                {
+                                    Text = message,
+                                    FontSize = 15,
+                                    Align = TextAnchor.MiddleCenter,
+                                    Color = "1 1 1 0.5",
+                                },
+                                new CuiRectTransformComponent
+                                {
+                                    AnchorMin = "0 0",
+                                    AnchorMax = "1 1",
+                                },
                             },
-                            new CuiRectTransformComponent { AnchorMin = "0 0", AnchorMax = "1 1" }
                         }
-                    });
+                    );
                 }
                 catch (ArgumentException ex)
                 {
@@ -410,16 +446,22 @@ namespace Oxide.Plugins
             private void AddProgressBar(CuiElementContainer container, float duration)
             {
                 float progress = Mathf.Clamp01(duration / maxDuration);
-                container.Add(new CuiElement
-                {
-                    Name = UIProgress,
-                    Parent = UIPanel,
-                    Components =
+                container.Add(
+                    new CuiElement
                     {
-                        new CuiImageComponent { Color = "0.60 0.80 0.20 0.5" },
-                        new CuiRectTransformComponent { AnchorMin = "0 0", AnchorMax = $"{progress} 0.1" }
+                        Name = UIProgress,
+                        Parent = UIPanel,
+                        Components =
+                        {
+                            new CuiImageComponent { Color = "0.60 0.80 0.20 0.5" },
+                            new CuiRectTransformComponent
+                            {
+                                AnchorMin = "0 0",
+                                AnchorMax = $"{progress} 0.1",
+                            },
+                        },
                     }
-                });
+                );
             }
         }
 
@@ -534,7 +576,11 @@ namespace Oxide.Plugins
         /// <param name="message">The command message</param>
         /// <param name="channel">The chat channel</param>
         /// <returns>Returns false to block the command, otherwise null</returns>
-        private object? OnPlayerChat(BasePlayer player, string message, ConVar.Chat.ChatChannel channel)
+        private object? OnPlayerChat(
+            BasePlayer player,
+            string message,
+            ConVar.Chat.ChatChannel channel
+        )
         {
             if (player == null || string.IsNullOrEmpty(message))
             {
@@ -543,7 +589,11 @@ namespace Oxide.Plugins
 
             if (blockedPlayers.Contains(player.userID))
             {
-                if (config.BlockedCommands.Exists(cmd => cmd != null && message.StartsWith(cmd, StringComparison.OrdinalIgnoreCase)))
+                if (
+                    config.BlockedCommands.Exists(cmd =>
+                        cmd != null && message.StartsWith(cmd, StringComparison.OrdinalIgnoreCase)
+                    )
+                )
                 {
                     player.ChatMessage(GetMessage("CombatBlock.BlockedCommand", player));
                     return false;
@@ -602,7 +652,7 @@ namespace Oxide.Plugins
                     BlockOnPlayerHit = true,
                     BlockOnReceiveDamage = true,
                     RemoveBlockOnDeath = true,
-                    BlockedCommands = new List<string> { "/tpr", "/tpa", "/home" }
+                    BlockedCommands = new List<string> { "/tpr", "/tpa", "/home" },
                 };
                 Config.WriteObject(config, true);
             }
