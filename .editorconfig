@@ -39,3 +39,5 @@ csharp_prefer_braces = true:error
 csharp_new_line_before_comma = true
 
 dotnet_diagnostic.CA1034.severity = none
+
+dotnet_diagnostic.S2325.severity = none

@@ -26,7 +26,7 @@ namespace Oxide.Plugins
         private readonly Dictionary<ulong, Dictionary<Vector3, float>> savedBlockTimes = new();
         private readonly Dictionary<ulong, Dictionary<Vector3, float>> remainingTimes = new();
 
-        private class PluginConfig
+        private sealed class PluginConfig
         {
             public float BlockDuration { get; set; }
             public bool BlockOnReceiveRaidDamage { get; set; }
@@ -42,13 +42,13 @@ namespace Oxide.Plugins
 
         private PluginConfig config = new() { BlockedCommands = new List<string>() };
 
-        private class RaidZone
+        private sealed class RaidZone
         {
             public Vector3 Position { get; set; }
             public float ExpirationTime { get; set; }
         }
 
-        private class RaidBlockUIManager
+        private sealed class RaidBlockUIManager
         {
             private const string UIPanel = "RaidBlock.UI";
             private const string UILabel = "RaidBlock.UI.Label";
@@ -67,7 +67,7 @@ namespace Oxide.Plugins
 
             public void Create(float duration)
             {
-                if (player == null || !player.IsConnected)
+                if (player?.IsConnected != true)
                 {
                     return;
                 }
@@ -77,6 +77,12 @@ namespace Oxide.Plugins
                 CuiElementContainer container = new();
                 try
                 {
+                    if (container == null || plugin == null)
+                    {
+                        plugin?.Puts("[RaidBlock] Failed to create UI container");
+                        return;
+                    }
+
                     // Background panel
                     _ = container.Add(
                         new CuiPanel
@@ -100,21 +106,17 @@ namespace Oxide.Plugins
                 }
                 catch (ArgumentException ex)
                 {
-                    plugin.Puts($"[RaidBlock] Invalid UI parameters: {ex.Message}");
+                    plugin?.Puts($"[RaidBlock] Invalid UI parameters: {ex.Message}");
                 }
                 catch (InvalidOperationException ex)
                 {
-                    plugin.Puts($"[RaidBlock] UI operation error: {ex.Message}");
-                }
-                catch (NullReferenceException ex)
-                {
-                    plugin.Puts($"[RaidBlock] UI component not found: {ex.Message}");
+                    plugin?.Puts($"[RaidBlock] UI operation error: {ex.Message}");
                 }
             }
 
             public void Update(float duration)
             {
-                if (player == null || !player.IsConnected)
+                if (player?.IsConnected != true)
                 {
                     return;
                 }
@@ -122,6 +124,12 @@ namespace Oxide.Plugins
                 try
                 {
                     CuiElementContainer container = new();
+                    if (container == null || plugin == null)
+                    {
+                        plugin?.Puts("[RaidBlock] Failed to create UI container");
+                        return;
+                    }
+
                     AddLabel(container, duration);
                     AddProgressBar(container, duration);
 
@@ -131,21 +139,17 @@ namespace Oxide.Plugins
                 }
                 catch (ArgumentException ex)
                 {
-                    plugin.Puts($"[RaidBlock] Invalid UI parameters: {ex.Message}");
+                    plugin?.Puts($"[RaidBlock] Invalid UI parameters: {ex.Message}");
                 }
                 catch (InvalidOperationException ex)
                 {
-                    plugin.Puts($"[RaidBlock] UI operation error: {ex.Message}");
-                }
-                catch (NullReferenceException ex)
-                {
-                    plugin.Puts($"[RaidBlock] UI component not found: {ex.Message}");
+                    plugin?.Puts($"[RaidBlock] UI operation error: {ex.Message}");
                 }
             }
 
             public void Destroy()
             {
-                if (player == null || !player.IsConnected)
+                if (player?.IsConnected != true)
                 {
                     return;
                 }
@@ -157,6 +161,11 @@ namespace Oxide.Plugins
 
             private void AddLabel(CuiElementContainer container, float duration)
             {
+                if (container == null || plugin == null)
+                {
+                    return;
+                }
+
                 try
                 {
                     string message = plugin.GetMessage("RaidBlock.Active", player, (int)duration);
@@ -190,10 +199,6 @@ namespace Oxide.Plugins
                 catch (InvalidOperationException ex)
                 {
                     plugin.Puts($"[RaidBlock] Label operation error: {ex.Message}");
-                }
-                catch (NullReferenceException ex)
-                {
-                    plugin.Puts($"[RaidBlock] Label component not found: {ex.Message}");
                 }
             }
 
@@ -229,20 +234,9 @@ namespace Oxide.Plugins
             return ui;
         }
 
-        private void CreateRaidBlockUI(BasePlayer player, float duration)
-        {
-            if (player == null || !player.IsConnected)
-            {
-                return;
-            }
-
-            RaidBlockUIManager ui = GetOrCreateUIManager(player);
-            ui.Create(duration);
-        }
-
         private void UpdateRaidBlockUI(BasePlayer player, float duration)
         {
-            if (player == null || !player.IsConnected)
+            if (player?.IsConnected != true)
             {
                 return;
             }
@@ -253,7 +247,7 @@ namespace Oxide.Plugins
 
         private void DestroyRaidBlockUI(BasePlayer player)
         {
-            if (player == null || !player.IsConnected)
+            if (player?.IsConnected != true)
             {
                 return;
             }
@@ -384,7 +378,7 @@ namespace Oxide.Plugins
         {
             foreach (SphereEntity dome in activeDomes)
             {
-                if (dome != null && !dome.IsDestroyed)
+                if (dome?.IsDestroyed == false)
                 {
                     dome.Kill();
                 }
@@ -402,80 +396,58 @@ namespace Oxide.Plugins
 
             ulong playerId = player.userID;
 
-            if (
-                saveTime
-                && raidTimers.ContainsKey(playerId)
-                && raidTimers[playerId].ContainsKey(zonePosition)
-            )
+            if (raidTimers.TryGetValue(playerId, out Dictionary<Vector3, Timer>? timers))
             {
-                if (!savedBlockTimes.ContainsKey(playerId))
+                if (timers.TryGetValue(zonePosition, out Timer? timer))
                 {
-                    savedBlockTimes[playerId] = new Dictionary<Vector3, float>();
+                    timer.Destroy();
+                    _ = timers.Remove(zonePosition);
                 }
 
-                if (
-                    remainingTimes.ContainsKey(playerId)
-                    && remainingTimes[playerId].ContainsKey(zonePosition)
-                )
-                {
-                    savedBlockTimes[playerId][zonePosition] = remainingTimes[playerId][
-                        zonePosition
-                    ];
-                }
-            }
-
-            if (raidTimers.ContainsKey(playerId) && raidTimers[playerId].ContainsKey(zonePosition))
-            {
-                raidTimers[playerId][zonePosition].Destroy();
-                _ = raidTimers[playerId].Remove(zonePosition);
-
-                if (raidTimers[playerId].Count == 0)
+                if (timers.Count == 0)
                 {
                     _ = raidTimers.Remove(playerId);
                 }
             }
 
-            if (playerZones.ContainsKey(playerId))
+            if (playerZones.TryGetValue(playerId, out HashSet<Vector3>? zones))
             {
-                _ = playerZones[playerId].Remove(zonePosition);
-                if (playerZones[playerId].Count == 0)
+                _ = zones.Remove(zonePosition);
+                if (zones.Count == 0)
                 {
                     _ = playerZones.Remove(playerId);
-                    DestroyRaidBlockUI(player);
-                }
-                else
-                {
-                    // Обновляем UI с максимальным оставшимся временем
-                    float maxTime = 0f;
-                    _ = Vector3.zero;
-                    foreach (Vector3 zone in playerZones[playerId])
-                    {
-                        if (
-                            remainingTimes.ContainsKey(playerId)
-                            && remainingTimes[playerId].ContainsKey(zone)
-                        )
-                        {
-                            if (remainingTimes[playerId][zone] > maxTime)
-                            {
-                                maxTime = remainingTimes[playerId][zone];
-                                Vector3 maxTimeZone = zone;
-                            }
-                        }
-                    }
-                    if (maxTime > 0)
-                    {
-                        UpdateRaidBlockUI(player, maxTime);
-                    }
                 }
             }
 
-            if (remainingTimes.ContainsKey(playerId))
+            if (
+                saveTime
+                && remainingTimes.TryGetValue(playerId, out Dictionary<Vector3, float>? times)
+            )
             {
-                _ = remainingTimes[playerId].Remove(zonePosition);
-                if (remainingTimes[playerId].Count == 0)
+                if (times.TryGetValue(zonePosition, out float remainingTime))
+                {
+                    if (
+                        !savedBlockTimes.TryGetValue(
+                            playerId,
+                            out Dictionary<Vector3, float>? savedTimes
+                        )
+                    )
+                    {
+                        savedTimes = new Dictionary<Vector3, float>();
+                        savedBlockTimes[playerId] = savedTimes;
+                    }
+                    savedTimes[zonePosition] = remainingTime;
+                }
+                _ = times.Remove(zonePosition);
+                if (times.Count == 0)
                 {
                     _ = remainingTimes.Remove(playerId);
                 }
+            }
+
+            if (!playerZones.TryGetValue(playerId, out HashSet<Vector3>? value) || value.Count == 0)
+            {
+                DestroyRaidBlockUI(player);
             }
         }
 
@@ -493,145 +465,104 @@ namespace Oxide.Plugins
 
             ulong playerId = player.userID;
 
-            try
+            if (
+                checkSaved
+                && savedBlockTimes.TryGetValue(playerId, out Dictionary<Vector3, float>? savedTimes)
+                && savedTimes.TryGetValue(zonePosition, out float savedDuration)
+            )
             {
-                // Всегда используем новую длительность при взрыве
-                if (!checkSaved)
+                duration = savedDuration;
+                _ = savedTimes.Remove(zonePosition);
+                if (savedTimes.Count == 0)
                 {
-                    duration = config.BlockDuration;
+                    _ = savedBlockTimes.Remove(playerId);
                 }
-                // Проверяем сохраненное время только если это не новый взрыв
-                else if (
-                    checkSaved
-                    && savedBlockTimes.ContainsKey(playerId)
-                    && savedBlockTimes[playerId].ContainsKey(zonePosition)
-                )
+            }
+
+            if (!raidTimers.TryGetValue(playerId, out Dictionary<Vector3, Timer>? timers))
+            {
+                timers = new Dictionary<Vector3, Timer>();
+                raidTimers[playerId] = timers;
+            }
+
+            if (timers.TryGetValue(zonePosition, out Timer? existingTimer))
+            {
+                existingTimer.Destroy();
+                _ = timers.Remove(zonePosition);
+            }
+
+            if (!playerZones.TryGetValue(playerId, out HashSet<Vector3>? zones))
+            {
+                zones = new HashSet<Vector3>();
+                playerZones[playerId] = zones;
+            }
+            _ = zones.Add(zonePosition);
+
+            if (!remainingTimes.TryGetValue(playerId, out Dictionary<Vector3, float>? times))
+            {
+                times = new Dictionary<Vector3, float>();
+                remainingTimes[playerId] = times;
+            }
+            times[zonePosition] = duration;
+
+            timers[zonePosition] = timer.Once(
+                1f,
+                () =>
                 {
-                    duration = savedBlockTimes[playerId][zonePosition];
-                    _ = savedBlockTimes[playerId].Remove(zonePosition);
-                    if (savedBlockTimes[playerId].Count == 0)
+                    if (player?.IsConnected != true)
                     {
-                        _ = savedBlockTimes.Remove(playerId);
-                    }
-                }
-                else
-                {
-                    duration = config.BlockDuration;
-                }
-
-                if (!raidTimers.ContainsKey(playerId))
-                {
-                    raidTimers[playerId] = new Dictionary<Vector3, Timer>();
-                }
-
-                if (!playerZones.ContainsKey(playerId))
-                {
-                    playerZones[playerId] = new HashSet<Vector3>();
-                }
-
-                if (!remainingTimes.ContainsKey(playerId))
-                {
-                    remainingTimes[playerId] = new Dictionary<Vector3, float>();
-                }
-
-                // Уничтожаем существующий таймер
-                if (raidTimers[playerId].ContainsKey(zonePosition))
-                {
-                    raidTimers[playerId][zonePosition].Destroy();
-                    _ = raidTimers[playerId].Remove(zonePosition);
-                }
-
-                _ = playerZones[playerId].Add(zonePosition);
-                remainingTimes[playerId][zonePosition] = duration;
-
-                // Обновляем UI с максимальным временем среди всех зон
-                float maxTime = duration;
-                foreach (float time in remainingTimes[playerId].Values)
-                {
-                    if (time > maxTime)
-                    {
-                        maxTime = time;
-                    }
-                }
-
-                if (playerZones[playerId].Count == 1)
-                {
-                    CreateRaidBlockUI(player, maxTime);
-                }
-                else
-                {
-                    UpdateRaidBlockUI(player, maxTime);
-                }
-
-                raidTimers[playerId][zonePosition] = timer.Repeat(
-                    1f,
-                    (int)duration,
-                    () =>
-                    {
-                        if (remainingTimes[playerId][zonePosition] > 0)
+                        if (timers.TryGetValue(zonePosition, out Timer? timer))
                         {
-                            remainingTimes[playerId][zonePosition]--;
-
-                            // Находим максимальное оставшееся время среди всех зон
-                            float maxRemainingTime = 0f;
-                            foreach (float time in remainingTimes[playerId].Values)
-                            {
-                                if (time > maxRemainingTime)
-                                {
-                                    maxRemainingTime = time;
-                                }
-                            }
-
-                            UpdateRaidBlockUI(player, maxRemainingTime);
+                            timer.Destroy();
+                            _ = timers.Remove(zonePosition);
                         }
-                        else
+                        return;
+                    }
+
+                    times[zonePosition]--;
+                    if (times[zonePosition] <= 0)
+                    {
+                        RemoveRaidBlock(player, zonePosition);
+                        if (timers.TryGetValue(zonePosition, out Timer? timer))
                         {
-                            RemoveRaidBlock(player, zonePosition);
+                            timer.Destroy();
+                            _ = timers.Remove(zonePosition);
                         }
                     }
-                );
-            }
-            catch (ArgumentException ex)
-            {
-                Puts($"[RaidBlock] Invalid raid block parameters: {ex.Message}");
-            }
-            catch (InvalidOperationException ex)
-            {
-                Puts($"[RaidBlock] Raid block operation error: {ex.Message}");
-            }
-            catch (NullReferenceException ex)
-            {
-                Puts($"[RaidBlock] Raid block component not found: {ex.Message}");
-            }
+                    else
+                    {
+                        UpdateRaidBlockUI(player, times[zonePosition]);
+                    }
+                }
+            );
+            UpdateRaidBlockUI(player, duration);
         }
 
-        private bool IsPlayerInRaidZone(BasePlayer player, out List<Vector3> activeZones)
+        private bool IsPlayerInRaidZone(BasePlayer player, out HashSet<Vector3> activeZones)
         {
-            activeZones = new List<Vector3>();
+            activeZones = new HashSet<Vector3>();
+
             if (player == null)
             {
                 return false;
             }
 
-            bool inAnyZone = false;
-            for (int i = activeRaidZones.Count - 1; i >= 0; i--)
+            Vector3 playerPosition = player.transform.position;
+            foreach (RaidZone raidZone in activeRaidZones)
             {
-                RaidZone raidZone = activeRaidZones[i];
                 if (Time.realtimeSinceStartup > raidZone.ExpirationTime)
                 {
                     continue;
                 }
 
-                float distance = Vector3.Distance(player.transform.position, raidZone.Position);
-
-                if (distance <= config.RaidZoneRadius / 2)
+                float distance = Vector3.Distance(playerPosition, raidZone.Position);
+                if (distance <= config.RaidZoneRadius)
                 {
-                    activeZones.Add(raidZone.Position);
-                    inAnyZone = true;
+                    _ = activeZones.Add(raidZone.Position);
                 }
             }
 
-            return inAnyZone;
+            return activeZones.Count > 0;
         }
 
         private void CheckPlayerInZone(BasePlayer player)
@@ -641,20 +572,21 @@ namespace Oxide.Plugins
                 return;
             }
 
-            _ = IsPlayerInRaidZone(player, out List<Vector3> activeZones);
+            _ = IsPlayerInRaidZone(player, out HashSet<Vector3> activeZones);
 
             ulong playerId = player.userID;
 
-            if (!playerZones.ContainsKey(playerId))
+            if (!playerZones.TryGetValue(playerId, out HashSet<Vector3>? value))
             {
-                playerZones[playerId] = new HashSet<Vector3>();
+                value = new HashSet<Vector3>();
+                playerZones[playerId] = value;
             }
 
             // Проверяем каждую активную зону
             foreach (Vector3 zonePos in activeZones)
             {
                 bool hasBlockInRange = false;
-                foreach (Vector3 playerZonePos in playerZones[playerId])
+                foreach (Vector3 playerZonePos in value)
                 {
                     if (Vector3.Distance(playerZonePos, zonePos) <= config.RaidZoneRadius / 2)
                     {
@@ -671,9 +603,9 @@ namespace Oxide.Plugins
 
             // Проверяем зоны, в которых игрок уже заблокирован
             List<Vector3> zonesToRemove = new();
-            if (playerZones.ContainsKey(playerId))
+            if (playerZones.TryGetValue(playerId, out _))
             {
-                foreach (Vector3 playerZonePos in playerZones[playerId])
+                foreach (Vector3 playerZonePos in value)
                 {
                     bool isInAnyActiveZone = false;
                     foreach (Vector3 activeZonePos in activeZones)
@@ -736,8 +668,7 @@ namespace Oxide.Plugins
                 foreach (SphereEntity dome in activeDomes)
                 {
                     if (
-                        dome != null
-                        && !dome.IsDestroyed
+                        dome?.IsDestroyed == false
                         && Vector3.Distance(dome.transform.position, position)
                             <= config.RaidZoneRadius / 2
                     )
@@ -759,7 +690,7 @@ namespace Oxide.Plugins
             // Проверяем, находится ли новая точка в радиусе существующего купола
             foreach (SphereEntity dome in activeDomes)
             {
-                if (dome != null && !dome.IsDestroyed)
+                if (dome?.IsDestroyed == false)
                 {
                     float distance = Vector3.Distance(dome.transform.position, position);
                     if (distance <= config.RaidZoneRadius / 2)
@@ -815,10 +746,9 @@ namespace Oxide.Plugins
 
             ulong playerId = player.userID;
 
-            if (playerZones.ContainsKey(playerId))
+            if (playerZones.TryGetValue(playerId, out HashSet<Vector3>? zones))
             {
-                List<Vector3> zones = new(playerZones[playerId]);
-                foreach (Vector3 zonePos in zones)
+                foreach (Vector3 zonePos in new HashSet<Vector3>(zones))
                 {
                     RemoveRaidBlock(player, zonePos, false);
                 }
@@ -827,7 +757,7 @@ namespace Oxide.Plugins
             DestroyRaidBlockUI(player);
         }
 
-        private object? OnPlayerChat(
+        private bool OnPlayerChat(
             BasePlayer player,
             string message,
             ConVar.Chat.ChatChannel channel
@@ -835,38 +765,34 @@ namespace Oxide.Plugins
         {
             if (player == null || string.IsNullOrEmpty(message))
             {
-                return null;
+                return true;
             }
 
             if (
-                remainingTimes.ContainsKey(player.userID)
-                && remainingTimes[player.userID].Count > 0
+                playerZones.TryGetValue(player.userID, out HashSet<Vector3>? zones)
+                && zones.Count > 0
+                && config.BlockedCommands.Exists(cmd =>
+                    cmd != null && message.StartsWith(cmd, StringComparison.OrdinalIgnoreCase)
+                )
             )
             {
-                if (
-                    config.BlockedCommands.Exists(cmd =>
-                        cmd != null && message.StartsWith(cmd, StringComparison.OrdinalIgnoreCase)
-                    )
-                )
-                {
-                    player.ChatMessage(GetMessage("RaidBlock.BlockedCommand", player));
-                    return false;
-                }
+                player.ChatMessage(GetMessage("RaidBlock.BlockedCommand", player));
+                return false;
             }
 
-            return null;
+            return true;
         }
 
-        private object? OnUserCommand(IPlayer player, string command, string[] args)
+        private bool OnUserCommand(IPlayer player, string command, string[] args)
         {
             if (player?.Object is not BasePlayer basePlayer)
             {
-                return null;
+                return true;
             }
 
             if (
-                remainingTimes.ContainsKey(basePlayer.userID)
-                && remainingTimes[basePlayer.userID].Count > 0
+                playerZones.TryGetValue(basePlayer.userID, out HashSet<Vector3>? zones)
+                && zones.Count > 0
             )
             {
                 command = "/" + command.ToUpperInvariant();
@@ -877,7 +803,7 @@ namespace Oxide.Plugins
                 }
             }
 
-            return null;
+            return true;
         }
 
         [HookMethod("HasRaidBlock")]
@@ -909,7 +835,7 @@ namespace Oxide.Plugins
                 1f,
                 () =>
                 {
-                    int expiredZones = activeRaidZones.RemoveAll(zone =>
+                    _ = activeRaidZones.RemoveAll(zone =>
                         Time.realtimeSinceStartup > zone.ExpirationTime
                     );
 
@@ -1024,75 +950,48 @@ namespace Oxide.Plugins
             }
         }
 
-        private object? CanBuild(Planner planner, Construction prefab, Construction.Target target)
+        private bool CanBuild(Planner planner, Construction prefab, Construction.Target target)
         {
-            if (planner == null || prefab == null)
-            {
-                return null;
-            }
-
-            BasePlayer player = planner.GetOwnerPlayer();
+            BasePlayer? player = planner?.GetOwnerPlayer();
             if (player == null)
             {
-                return null;
+                return true;
             }
 
-            // Получаем позицию строительства
-            Vector3 buildPosition =
-                target.entity != null ? target.entity.transform.position : target.position;
-
-            // Если есть привязка к существующему объекту
-
-            foreach (RaidZone raidZone in activeRaidZones)
+            if (
+                playerZones.TryGetValue(player.userID, out HashSet<Vector3>? zones)
+                && zones.Count > 0
+            )
             {
-                if (Time.realtimeSinceStartup > raidZone.ExpirationTime)
-                {
-                    continue;
-                }
-
-                float distance = Vector3.Distance(buildPosition, raidZone.Position);
-
-                if (distance <= config.RaidZoneRadius / 2)
-                {
-                    player.ChatMessage(GetMessage("RaidBlock.NoBuild", player));
-                    return false;
-                }
+                player.ChatMessage(GetMessage("RaidBlock.BlockedBuild", player));
+                return false;
             }
 
-            return null;
+            return true;
         }
 
-        private object? OnStructureUpgrade(
+        private bool OnStructureUpgrade(
             BuildingBlock block,
             BasePlayer player,
             BuildingGrade.Enum grade,
             ulong skinID
         )
         {
-            if (block == null || player == null)
+            if (player == null)
             {
-                return null;
+                return true;
             }
 
-            Vector3 upgradePosition = block.transform.position;
-
-            foreach (RaidZone raidZone in activeRaidZones)
+            if (
+                playerZones.TryGetValue(player.userID, out HashSet<Vector3>? zones)
+                && zones.Count > 0
+            )
             {
-                if (Time.realtimeSinceStartup > raidZone.ExpirationTime)
-                {
-                    continue;
-                }
-
-                float distance = Vector3.Distance(upgradePosition, raidZone.Position);
-
-                if (distance <= config.RaidZoneRadius / 2)
-                {
-                    player.ChatMessage(GetMessage("RaidBlock.NoBuild", player));
-                    return false;
-                }
+                player.ChatMessage(GetMessage("RaidBlock.BlockedUpgrade", player));
+                return false;
             }
 
-            return null;
+            return true;
         }
     }
 }

@@ -19,7 +19,6 @@
 /// RustGPT: https://chatgpt.com/g/g-xunzDbv9b-rustgpt
 /// Image: https://i.imgur.com/VQB20VZ_d.webp?maxwidth=760&fidelity=grand
 /// </summary>
-
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -40,7 +39,7 @@ namespace Oxide.Plugins
         /// <summary>
         /// Configuration class for the CombatBlock plugin
         /// </summary>
-        private class PluginConfig
+        private sealed class PluginConfig
         {
             /// <summary>
             /// Duration of the combat block in seconds
@@ -96,27 +95,7 @@ namespace Oxide.Plugins
             base.LoadConfig();
             try
             {
-                PluginConfig loadedConfig = Config.ReadObject<PluginConfig>();
-                if (loadedConfig != null)
-                {
-                    // Создаем новый экземпляр с дефолтными значениями
-                    PluginConfig newConfig = new()
-                    {
-                        BlockDuration = loadedConfig.BlockDuration,
-                        BlockOnPlayerHit = loadedConfig.BlockOnPlayerHit,
-                        BlockOnReceiveDamage = loadedConfig.BlockOnReceiveDamage,
-                        RemoveBlockOnDeath = loadedConfig.RemoveBlockOnDeath,
-                        BlockedCommands =
-                            loadedConfig.BlockedCommands
-                            ?? new List<string> { "/tpr", "/tpa", "/home" },
-                    };
-
-                    config = newConfig;
-                }
-                else
-                {
-                    LoadDefaultConfig();
-                }
+                config = Config.ReadObject<PluginConfig>() ?? new PluginConfig();
             }
             catch (FormatException ex)
             {
@@ -233,27 +212,24 @@ namespace Oxide.Plugins
         /// <param name="duration">The duration of the combat block in seconds</param>
         private void AddCombatBlock(BasePlayer player, float duration)
         {
-            if (player == null || !player.IsConnected)
+            if (player?.IsConnected != true)
             {
                 return;
             }
 
             ulong playerId = player.userID;
 
-            // Если у игрока уже есть блокировка, обновляем только таймер
             if (blockedPlayers.Contains(playerId))
             {
-                if (combatTimers.ContainsKey(playerId))
+                if (combatTimers.TryGetValue(playerId, out Timer? timer))
                 {
-                    combatTimers[playerId].Destroy();
+                    timer.Destroy();
                     _ = combatTimers.Remove(playerId);
                 }
-                // Обновляем UI при обновлении таймера
                 UpdateCombatBlockUI(player, duration);
             }
             else
             {
-                // Только если игрок не был заблокирован, добавляем его в список и создаем UI
                 _ = blockedPlayers.Add(playerId);
                 CreateCombatBlockUI(player, duration);
             }
@@ -261,13 +237,12 @@ namespace Oxide.Plugins
             float remainingTime = duration;
             Timer? uiUpdateTimer = null;
 
-            // Создаем один таймер для обновления UI
             uiUpdateTimer = timer.Repeat(
                 1f,
                 (int)duration,
                 () =>
                 {
-                    if (player == null || !player.IsConnected)
+                    if (player?.IsConnected != true)
                     {
                         uiUpdateTimer?.Destroy();
                         _ = blockedPlayers.Remove(playerId);
@@ -294,7 +269,7 @@ namespace Oxide.Plugins
             combatTimers[playerId] = uiUpdateTimer;
         }
 
-        private class CombatBlockUIManager
+        private sealed class CombatBlockUIManager
         {
             private const string UIPanel = "CombatBlock.UI";
             private const string UILabel = "CombatBlock.UI.Label";
@@ -313,7 +288,7 @@ namespace Oxide.Plugins
 
             public void Create(float duration)
             {
-                if (player == null || !player.IsConnected)
+                if (player?.IsConnected != true)
                 {
                     return;
                 }
@@ -323,6 +298,12 @@ namespace Oxide.Plugins
                 CuiElementContainer container = new();
                 try
                 {
+                    if (container == null)
+                    {
+                        plugin.Puts("[CombatBlock] Failed to create UI container");
+                        return;
+                    }
+
                     // Background panel
                     _ = container.Add(
                         new CuiPanel
@@ -352,15 +333,11 @@ namespace Oxide.Plugins
                 {
                     plugin.Puts($"[CombatBlock] UI operation error: {ex.Message}");
                 }
-                catch (NullReferenceException ex)
-                {
-                    plugin.Puts($"[CombatBlock] UI component not found: {ex.Message}");
-                }
             }
 
             public void Update(float duration)
             {
-                if (player == null || !player.IsConnected)
+                if (player?.IsConnected != true)
                 {
                     return;
                 }
@@ -368,6 +345,12 @@ namespace Oxide.Plugins
                 try
                 {
                     CuiElementContainer container = new();
+                    if (container == null)
+                    {
+                        plugin.Puts("[CombatBlock] Failed to create UI container");
+                        return;
+                    }
+
                     AddLabel(container, duration);
                     AddProgressBar(container, duration);
 
@@ -383,15 +366,11 @@ namespace Oxide.Plugins
                 {
                     plugin.Puts($"[CombatBlock] UI operation error: {ex.Message}");
                 }
-                catch (NullReferenceException ex)
-                {
-                    plugin.Puts($"[CombatBlock] UI component not found: {ex.Message}");
-                }
             }
 
             public void Destroy()
             {
-                if (player == null || !player.IsConnected)
+                if (player?.IsConnected != true)
                 {
                     return;
                 }
@@ -403,6 +382,11 @@ namespace Oxide.Plugins
 
             private void AddLabel(CuiElementContainer container, float duration)
             {
+                if (container == null || plugin == null)
+                {
+                    return;
+                }
+
                 try
                 {
                     string message = plugin.GetMessage("CombatBlock.Active", player, (int)duration);
@@ -437,10 +421,6 @@ namespace Oxide.Plugins
                 {
                     plugin.Puts($"[CombatBlock] Label operation error: {ex.Message}");
                 }
-                catch (NullReferenceException ex)
-                {
-                    plugin.Puts($"[CombatBlock] Label component not found: {ex.Message}");
-                }
             }
 
             private void AddProgressBar(CuiElementContainer container, float duration)
@@ -469,7 +449,7 @@ namespace Oxide.Plugins
 
         private void CreateCombatBlockUI(BasePlayer player, float duration)
         {
-            if (player == null || !player.IsConnected)
+            if (player?.IsConnected != true)
             {
                 return;
             }
@@ -480,7 +460,7 @@ namespace Oxide.Plugins
 
         private void UpdateCombatBlockUI(BasePlayer player, float duration)
         {
-            if (player == null || !player.IsConnected)
+            if (player?.IsConnected != true)
             {
                 return;
             }
@@ -491,7 +471,7 @@ namespace Oxide.Plugins
 
         private void DestroyCombatBlockUI(BasePlayer player)
         {
-            if (player == null || !player.IsConnected)
+            if (player?.IsConnected != true)
             {
                 return;
             }
@@ -576,7 +556,7 @@ namespace Oxide.Plugins
         /// <param name="message">The command message</param>
         /// <param name="channel">The chat channel</param>
         /// <returns>Returns false to block the command, otherwise null</returns>
-        private object? OnPlayerChat(
+        private bool OnPlayerChat(
             BasePlayer player,
             string message,
             ConVar.Chat.ChatChannel channel
@@ -584,23 +564,21 @@ namespace Oxide.Plugins
         {
             if (player == null || string.IsNullOrEmpty(message))
             {
-                return null;
+                return true;
             }
 
-            if (blockedPlayers.Contains(player.userID))
-            {
-                if (
-                    config.BlockedCommands.Exists(cmd =>
-                        cmd != null && message.StartsWith(cmd, StringComparison.OrdinalIgnoreCase)
-                    )
+            if (
+                blockedPlayers.Contains(player.userID)
+                && config.BlockedCommands.Exists(cmd =>
+                    cmd != null && message.StartsWith(cmd, StringComparison.OrdinalIgnoreCase)
                 )
-                {
-                    player.ChatMessage(GetMessage("CombatBlock.BlockedCommand", player));
-                    return false;
-                }
+            )
+            {
+                player.ChatMessage(GetMessage("CombatBlock.BlockedCommand", player));
+                return false;
             }
 
-            return null;
+            return true;
         }
 
         /// <summary>
@@ -610,11 +588,11 @@ namespace Oxide.Plugins
         /// <param name="command">The command name</param>
         /// <param name="args">The command arguments</param>
         /// <returns>Returns false to block the command, otherwise null</returns>
-        private object? OnUserCommand(IPlayer player, string command, string[] args)
+        private bool OnUserCommand(IPlayer player, string command, string[] args)
         {
             if (player?.Object is not BasePlayer basePlayer)
             {
-                return null;
+                return true;
             }
 
             if (blockedPlayers.Contains(basePlayer.userID))
@@ -627,7 +605,7 @@ namespace Oxide.Plugins
                 }
             }
 
-            return null;
+            return true;
         }
 
         /// <summary>
