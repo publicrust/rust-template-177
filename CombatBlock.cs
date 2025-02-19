@@ -33,6 +33,9 @@ namespace Oxide.Plugins
     [Description("Adds a combat block system with a UI component to show the block duration.")]
     public class CombatBlock : RustPlugin
     {
+        [PluginReference]
+        private readonly Plugin? RaidBlock;
+
         private readonly Dictionary<ulong, Timer> combatTimers = new();
         private readonly HashSet<ulong> blockedPlayers = new();
 
@@ -269,6 +272,27 @@ namespace Oxide.Plugins
             combatTimers[playerId] = uiUpdateTimer;
         }
 
+        private void OnEntityTakeDamage(BaseCombatEntity entity, HitInfo info)
+        {
+            if (entity == null || info?.Initiator == null)
+            {
+                return;
+            }
+
+            if (entity is BasePlayer victim && info.Initiator is BasePlayer attacker && victim != attacker)
+            {
+                if (config.BlockOnReceiveDamage)
+                {
+                    AddCombatBlock(victim, config.BlockDuration);
+                }
+
+                if (config.BlockOnPlayerHit)
+                {
+                    AddCombatBlock(attacker, config.BlockDuration);
+                }
+            }
+        }
+
         private sealed class CombatBlockUIManager
         {
             private const string UIPanel = "CombatBlock.UI";
@@ -286,23 +310,69 @@ namespace Oxide.Plugins
                 this.maxDuration = maxDuration;
             }
 
-            public void Create(float duration)
+            private (string min, string max) GetUIPosition()
             {
-                if (player?.IsConnected != true)
-                {
-                    return;
-                }
-
-                Destroy();
-
-                CuiElementContainer container = new();
                 try
                 {
-                    if (container == null)
+                    if (plugin == null)
                     {
-                        plugin.Puts("[CombatBlock] Failed to create UI container");
+                        return ("0.3447913 0.1135", "0.640625 0.1435");
+                    }
+
+                    // Проверяем наличие активного RaidBlock UI
+                    bool hasRaidBlock = false;
+                    if (plugin.RaidBlock != null)
+                    {
+                        try
+                        {
+                            // Проверяем наличие UI и активного блока
+                            object? hasUI = plugin.RaidBlock.Call("HasRaidBlockUI", player.userID);
+                            object? hasBlock = plugin.RaidBlock.Call("HasRaidBlock", player.userID);
+                            if (hasUI is bool hasUIValue && hasBlock is bool hasBlockValue && hasUIValue && hasBlockValue)
+                            {
+                                hasRaidBlock = true;
+                            }
+                        }
+                        catch
+                        {
+                            plugin?.Puts("[CombatBlock] Error checking RaidBlock status");
+                        }
+                    }
+
+                    // Если есть активный RaidBlock UI, размещаем наш UI выше
+                    if (hasRaidBlock)
+                    {
+                        return ("0.3447913 0.1535", "0.640625 0.1835");
+                    }
+
+                    // Стандартная позиция
+                    return ("0.3447913 0.1135", "0.640625 0.1435");
+                }
+                catch (Exception ex)
+                {
+                    plugin?.Puts($"[CombatBlock] Error getting UI position: {ex.Message}");
+                    return ("0.3447913 0.1135", "0.640625 0.1435");
+                }
+            }
+
+            public void Create(float duration)
+            {
+                try
+                {
+                    if (player?.IsConnected != true)
+                    {
                         return;
                     }
+
+                    Destroy();
+
+                    CuiElementContainer container = new();
+                    if (container == null || plugin == null)
+                    {
+                        return;
+                    }
+
+                    (string anchorMin, string anchorMax) = GetUIPosition();
 
                     // Background panel
                     _ = container.Add(
@@ -311,8 +381,8 @@ namespace Oxide.Plugins
                             Image = { Color = "0.97 0.92 0.88 0.16" },
                             RectTransform =
                             {
-                                AnchorMin = "0.3447913 0.1135",
-                                AnchorMax = "0.640625 0.1435",
+                                AnchorMin = anchorMin,
+                                AnchorMax = anchorMax,
                             },
                             CursorEnabled = false,
                         },
@@ -325,13 +395,9 @@ namespace Oxide.Plugins
 
                     _ = CuiHelper.AddUi(player, container);
                 }
-                catch (ArgumentException ex)
+                catch (Exception ex)
                 {
-                    plugin.Puts($"[CombatBlock] Invalid UI parameters: {ex.Message}");
-                }
-                catch (InvalidOperationException ex)
-                {
-                    plugin.Puts($"[CombatBlock] UI operation error: {ex.Message}");
+                    plugin?.Puts($"[CombatBlock] Error creating UI: {ex.Message}");
                 }
             }
 
@@ -350,6 +416,25 @@ namespace Oxide.Plugins
                         plugin.Puts("[CombatBlock] Failed to create UI container");
                         return;
                     }
+
+                    (string anchorMin, string anchorMax) = GetUIPosition();
+
+                    // Обновляем позицию панели
+                    _ = CuiHelper.DestroyUi(player, UIPanel);
+                    _ = container.Add(
+                        new CuiPanel
+                        {
+                            Image = { Color = "0.97 0.92 0.88 0.16" },
+                            RectTransform =
+                            {
+                                AnchorMin = anchorMin,
+                                AnchorMax = anchorMax,
+                            },
+                            CursorEnabled = false,
+                        },
+                        "Hud",
+                        UIPanel
+                    );
 
                     AddLabel(container, duration);
                     AddProgressBar(container, duration);
@@ -505,32 +590,6 @@ namespace Oxide.Plugins
         }
 
         /// <summary>
-        /// Handles the event when an entity takes damage, applying combat block if applicable
-        /// </summary>
-        /// <param name="entity">The entity taking damage</param>
-        /// <param name="info">The hit information</param>
-        private void OnEntityTakeDamage(BaseCombatEntity entity, HitInfo info)
-        {
-            if (entity == null || info?.Initiator == null)
-            {
-                return;
-            }
-
-            if (entity is BasePlayer victim && info.Initiator is BasePlayer attacker)
-            {
-                if (victim != attacker && config.BlockOnReceiveDamage)
-                {
-                    AddCombatBlock(victim, config.BlockDuration);
-                }
-
-                if (config.BlockOnPlayerHit)
-                {
-                    AddCombatBlock(attacker, config.BlockDuration);
-                }
-            }
-        }
-
-        /// <summary>
         /// Handles the event when a player dies, removing combat block if configured to do so
         /// </summary>
         /// <param name="player">The player who died</param>
@@ -634,7 +693,19 @@ namespace Oxide.Plugins
                 };
                 Config.WriteObject(config, true);
             }
+
+            if (RaidBlock == null)
+            {
+                PrintError("RaidBlock plugin not found!");
+            }
+
             ClearAllCombatBlockUI();
+        }
+
+        [HookMethod("HasCombatBlockUI")]
+        public bool HasCombatBlockUI(ulong playerID)
+        {
+            return uiManagers.ContainsKey(playerID);
         }
     }
 }
