@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using Oxide.Core.Libraries.Covalence;
 using Oxide.Core.Plugins;
 using Oxide.Game.Rust.Cui;
@@ -33,11 +34,11 @@ namespace Oxide.Plugins
             public bool RemoveBlockOnDeath { get; set; }
             public required List<string> BlockedCommands { get; set; }
             public float RaidZoneRadius { get; set; }
-
-            public bool IsSphereEnabled { get; set; } = true;
+            public bool IsSphereEnabled { get; set; }
             public int SphereType { get; set; }
-            public int DomeTransparencyLevel { get; set; } = 3;
-            public float VisualMultiplier { get; set; } = 1.0f;
+            public int DomeTransparencyLevel { get; set; }
+            public float VisualMultiplier { get; set; }
+            public bool DebugMode { get; set; }
         }
 
         private PluginConfig config = new() { BlockedCommands = new List<string>() };
@@ -65,23 +66,67 @@ namespace Oxide.Plugins
                 this.maxDuration = maxDuration;
             }
 
-            public void Create(float duration)
+            private (string min, string max) GetUIPosition()
             {
-                if (player?.IsConnected != true)
-                {
-                    return;
-                }
-
-                Destroy();
-
-                CuiElementContainer container = new();
                 try
                 {
-                    if (container == null || plugin == null)
+                    plugin?.DebugLog("GetUIPosition: Checking UI position");
+                    bool hasCombatBlock = false;
+                    if (plugin?.CombatBlock != null)
                     {
-                        plugin?.Puts("[RaidBlock] Failed to create UI container");
+                        try
+                        {
+                            // Проверяем наличие UI и активного блока
+                            object? hasUI = plugin.CombatBlock.Call("HasCombatBlockUI", player.userID);
+                            object? hasBlock = plugin.CombatBlock.Call("HasCombatBlock", player.userID);
+                            if (hasUI is bool hasUIValue && hasBlock is bool hasBlockValue)
+                            {
+                                hasCombatBlock = hasUIValue && hasBlockValue;
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            plugin.DebugLog($"GetUIPosition: Error checking CombatBlock UI: {ex.Message}");
+                        }
+                    }
+
+                    // Если есть активный CombatBlock UI, размещаем наш UI ниже
+                    if (hasCombatBlock)
+                    {
+                        return ("0.3447913 0.0735", "0.640625 0.1035");
+                    }
+
+                    // Стандартная позиция
+                    return ("0.3447913 0.1135", "0.640625 0.1435");
+                }
+                catch (Exception ex)
+                {
+                    plugin?.DebugLog($"GetUIPosition: Error: {ex.Message}");
+                    return ("0.3447913 0.1135", "0.640625 0.1435");
+                }
+            }
+
+            public void Create(float duration)
+            {
+                try
+                {
+                    if (player?.IsConnected != true)
+                    {
+                        plugin?.DebugLog("Create: Player is not connected");
                         return;
                     }
+
+                    Destroy();
+
+                    CuiElementContainer container = new();
+                    if (container == null || plugin == null)
+                    {
+                        plugin?.DebugLog("Create: Failed to create UI container");
+                        return;
+                    }
+
+                    (string anchorMin, string anchorMax) = GetUIPosition();
+                    plugin.DebugLog($"Create: Creating UI at position {anchorMin} - {anchorMax}");
 
                     // Background panel
                     _ = container.Add(
@@ -90,8 +135,8 @@ namespace Oxide.Plugins
                             Image = { Color = "0.97 0.92 0.88 0.16" },
                             RectTransform =
                             {
-                                AnchorMin = "0.3447913 0.1135",
-                                AnchorMax = "0.640625 0.1435",
+                                AnchorMin = anchorMin,
+                                AnchorMax = anchorMax,
                             },
                             CursorEnabled = false,
                         },
@@ -103,14 +148,11 @@ namespace Oxide.Plugins
                     AddProgressBar(container, duration);
 
                     _ = CuiHelper.AddUi(player, container);
+                    plugin.DebugLog($"Create: UI created successfully for player {player.displayName}");
                 }
-                catch (ArgumentException ex)
+                catch (Exception ex)
                 {
-                    plugin?.Puts($"[RaidBlock] Invalid UI parameters: {ex.Message}");
-                }
-                catch (InvalidOperationException ex)
-                {
-                    plugin?.Puts($"[RaidBlock] UI operation error: {ex.Message}");
+                    plugin?.DebugLog($"Create: Error creating UI: {ex.Message}");
                 }
             }
 
@@ -129,6 +171,25 @@ namespace Oxide.Plugins
                         plugin?.Puts("[RaidBlock] Failed to create UI container");
                         return;
                     }
+
+                    (string anchorMin, string anchorMax) = GetUIPosition();
+
+                    // Обновляем позицию панели
+                    _ = CuiHelper.DestroyUi(player, UIPanel);
+                    _ = container.Add(
+                        new CuiPanel
+                        {
+                            Image = { Color = "0.97 0.92 0.88 0.16" },
+                            RectTransform =
+                            {
+                                AnchorMin = anchorMin,
+                                AnchorMax = anchorMax,
+                            },
+                            CursorEnabled = false,
+                        },
+                        "Hud",
+                        UIPanel
+                    );
 
                     AddLabel(container, duration);
                     AddProgressBar(container, duration);
@@ -236,26 +297,45 @@ namespace Oxide.Plugins
 
         private void UpdateRaidBlockUI(BasePlayer player, float duration)
         {
-            if (player?.IsConnected != true)
+            try
             {
-                return;
-            }
+                if (player?.IsConnected != true)
+                {
+                    DebugLog($"UpdateRaidBlockUI: Player {player?.displayName ?? "null"} is not connected");
+                    return;
+                }
 
-            RaidBlockUIManager ui = GetOrCreateUIManager(player);
-            ui.Update(duration);
+                if (!playerZones.TryGetValue(player.userID, out HashSet<Vector3>? zones) || zones == null || zones.Count == 0)
+                {
+                    DebugLog($"UpdateRaidBlockUI: No active zones for player {player.displayName}, destroying UI");
+                    DestroyRaidBlockUI(player);
+                    return;
+                }
+
+                DebugLog($"UpdateRaidBlockUI: Updating UI for player {player.displayName} with duration {duration}");
+                RaidBlockUIManager ui = GetOrCreateUIManager(player);
+                ui.Update(duration);
+            }
+            catch (Exception ex)
+            {
+                DebugLog($"UpdateRaidBlockUI: Error updating UI - {ex.Message}");
+            }
         }
 
         private void DestroyRaidBlockUI(BasePlayer player)
         {
             if (player?.IsConnected != true)
             {
+                DebugLog($"DestroyRaidBlockUI: Player {player?.displayName ?? "null"} is not connected");
                 return;
             }
 
+            DebugLog($"DestroyRaidBlockUI: Destroying UI for player {player.displayName}");
             if (uiManagers.TryGetValue(player.userID, out RaidBlockUIManager? ui))
             {
                 ui.Destroy();
                 _ = uiManagers.Remove(player.userID);
+                DebugLog($"DestroyRaidBlockUI: UI destroyed and removed for player {player.displayName}");
             }
         }
 
@@ -263,11 +343,14 @@ namespace Oxide.Plugins
         {
             if (player == null)
             {
+                DebugLog("OnPlayerDisconnected: Player is null");
                 return;
             }
 
+            DebugLog($"OnPlayerDisconnected: Player {player.displayName} disconnected. Reason: {reason}");
             RemoveAllRaidBlocks(player);
             _ = uiManagers.Remove(player.userID);
+            DebugLog($"OnPlayerDisconnected: Removed all raid blocks and UI for player {player.displayName}");
         }
 
         protected override void LoadDefaultConfig()
@@ -281,8 +364,9 @@ namespace Oxide.Plugins
                 RaidZoneRadius = 50.0f,
                 IsSphereEnabled = true,
                 SphereType = 0,
-                DomeTransparencyLevel = 3,
+                DomeTransparencyLevel = 7,
                 VisualMultiplier = 1.0f,
+                DebugMode = false
             };
             SaveConfig();
         }
@@ -305,6 +389,7 @@ namespace Oxide.Plugins
         private void Init()
         {
             ClearAllRaidBlockUI();
+            PrintWarning("Fixed RaidBlock zones and FakePlayers");
         }
 
         private void Unload()
@@ -391,9 +476,11 @@ namespace Oxide.Plugins
         {
             if (player == null)
             {
+                DebugLog("RemoveRaidBlock: Player is null");
                 return;
             }
 
+            DebugLog($"RemoveRaidBlock: Removing raid block for player {player.displayName} at position {zonePosition}");
             ulong playerId = player.userID;
 
             if (raidTimers.TryGetValue(playerId, out Dictionary<Vector3, Timer>? timers))
@@ -402,140 +489,167 @@ namespace Oxide.Plugins
                 {
                     timer.Destroy();
                     _ = timers.Remove(zonePosition);
+                    DebugLog($"RemoveRaidBlock: Timer destroyed for player {player.displayName} at position {zonePosition}");
                 }
 
                 if (timers.Count == 0)
                 {
                     _ = raidTimers.Remove(playerId);
+                    DebugLog($"RemoveRaidBlock: All timers removed for player {player.displayName}");
                 }
             }
 
             if (playerZones.TryGetValue(playerId, out HashSet<Vector3>? zones))
             {
                 _ = zones.Remove(zonePosition);
+                DebugLog($"RemoveRaidBlock: Zone {zonePosition} removed for player {player.displayName}");
                 if (zones.Count == 0)
                 {
                     _ = playerZones.Remove(playerId);
+                    DebugLog($"RemoveRaidBlock: All zones removed for player {player.displayName}");
                 }
             }
 
-            if (
-                saveTime
-                && remainingTimes.TryGetValue(playerId, out Dictionary<Vector3, float>? times)
-            )
+            if (saveTime && remainingTimes.TryGetValue(playerId, out Dictionary<Vector3, float>? times))
             {
                 if (times.TryGetValue(zonePosition, out float remainingTime))
                 {
-                    if (
-                        !savedBlockTimes.TryGetValue(
-                            playerId,
-                            out Dictionary<Vector3, float>? savedTimes
-                        )
-                    )
+                    if (!savedBlockTimes.TryGetValue(playerId, out Dictionary<Vector3, float>? savedTimes))
                     {
                         savedTimes = new Dictionary<Vector3, float>();
                         savedBlockTimes[playerId] = savedTimes;
+                        DebugLog($"RemoveRaidBlock: Created new saved times dictionary for player {player.displayName}");
                     }
                     savedTimes[zonePosition] = remainingTime;
+                    DebugLog($"RemoveRaidBlock: Saved remaining time {remainingTime} for player {player.displayName} at position {zonePosition}");
                 }
                 _ = times.Remove(zonePosition);
                 if (times.Count == 0)
                 {
                     _ = remainingTimes.Remove(playerId);
+                    DebugLog($"RemoveRaidBlock: All remaining times removed for player {player.displayName}");
                 }
             }
 
             if (!playerZones.TryGetValue(playerId, out HashSet<Vector3>? value) || value.Count == 0)
             {
                 DestroyRaidBlockUI(player);
+                DebugLog($"RemoveRaidBlock: UI destroyed for player {player.displayName} as no active zones remain");
             }
         }
 
-        private void AddRaidBlock(
-            BasePlayer player,
-            Vector3 zonePosition,
-            float duration,
-            bool checkSaved = true
-        )
+        private void AddRaidBlock(BasePlayer player, Vector3 zonePosition, float duration, bool checkSaved = true)
         {
-            if (player == null)
+            try
             {
-                return;
-            }
-
-            ulong playerId = player.userID;
-
-            if (
-                checkSaved
-                && savedBlockTimes.TryGetValue(playerId, out Dictionary<Vector3, float>? savedTimes)
-                && savedTimes.TryGetValue(zonePosition, out float savedDuration)
-            )
-            {
-                duration = savedDuration;
-                _ = savedTimes.Remove(zonePosition);
-                if (savedTimes.Count == 0)
+                if (player == null)
                 {
-                    _ = savedBlockTimes.Remove(playerId);
+                    DebugLog("AddRaidBlock: Player is null");
+                    return;
                 }
-            }
 
-            if (!raidTimers.TryGetValue(playerId, out Dictionary<Vector3, Timer>? timers))
-            {
-                timers = new Dictionary<Vector3, Timer>();
-                raidTimers[playerId] = timers;
-            }
+                DebugLog($"AddRaidBlock: Adding raid block for player {player.displayName} at position {zonePosition}");
+                ulong playerId = player.userID;
 
-            if (timers.TryGetValue(zonePosition, out Timer? existingTimer))
-            {
-                existingTimer.Destroy();
-                _ = timers.Remove(zonePosition);
-            }
-
-            if (!playerZones.TryGetValue(playerId, out HashSet<Vector3>? zones))
-            {
-                zones = new HashSet<Vector3>();
-                playerZones[playerId] = zones;
-            }
-            _ = zones.Add(zonePosition);
-
-            if (!remainingTimes.TryGetValue(playerId, out Dictionary<Vector3, float>? times))
-            {
-                times = new Dictionary<Vector3, float>();
-                remainingTimes[playerId] = times;
-            }
-            times[zonePosition] = duration;
-
-            timers[zonePosition] = timer.Once(
-                1f,
-                () =>
+                if (checkSaved && savedBlockTimes.TryGetValue(playerId, out Dictionary<Vector3, float>? savedTimes) && savedTimes.TryGetValue(zonePosition, out float savedDuration))
                 {
-                    if (player?.IsConnected != true)
+                    duration = savedDuration;
+                    _ = savedTimes.Remove(zonePosition);
+                    if (savedTimes.Count == 0)
                     {
-                        if (timers.TryGetValue(zonePosition, out Timer? timer))
-                        {
-                            timer.Destroy();
-                            _ = timers.Remove(zonePosition);
-                        }
-                        return;
+                        _ = savedBlockTimes.Remove(playerId);
                     }
-
-                    times[zonePosition]--;
-                    if (times[zonePosition] <= 0)
-                    {
-                        RemoveRaidBlock(player, zonePosition);
-                        if (timers.TryGetValue(zonePosition, out Timer? timer))
-                        {
-                            timer.Destroy();
-                            _ = timers.Remove(zonePosition);
-                        }
-                    }
-                    else
-                    {
-                        UpdateRaidBlockUI(player, times[zonePosition]);
-                    }
+                    DebugLog($"AddRaidBlock: Using saved duration {duration} for player {player.displayName}");
                 }
-            );
-            UpdateRaidBlockUI(player, duration);
+
+                if (!raidTimers.TryGetValue(playerId, out Dictionary<Vector3, Timer>? timers))
+                {
+                    timers = new Dictionary<Vector3, Timer>();
+                    raidTimers[playerId] = timers;
+                }
+
+                if (timers.TryGetValue(zonePosition, out Timer? existingTimer))
+                {
+                    existingTimer.Destroy();
+                    _ = timers.Remove(zonePosition);
+                    DebugLog($"AddRaidBlock: Destroyed existing timer for player {player.displayName}");
+                }
+
+                if (!playerZones.TryGetValue(playerId, out HashSet<Vector3>? zones))
+                {
+                    zones = new HashSet<Vector3>();
+                    playerZones[playerId] = zones;
+                }
+
+                _ = zones.Add(zonePosition);
+                DebugLog($"AddRaidBlock: Added zone {zonePosition} for player {player.displayName}");
+
+                if (!remainingTimes.TryGetValue(playerId, out Dictionary<Vector3, float>? times))
+                {
+                    times = new Dictionary<Vector3, float>();
+                    remainingTimes[playerId] = times;
+                }
+
+                times[zonePosition] = duration;
+
+                timers[zonePosition] = timer.Repeat(1f, (int)duration, () =>
+                {
+                    try
+                    {
+                        if (player?.IsConnected != true)
+                        {
+                            DebugLog($"AddRaidBlock: Player {player?.displayName ?? "null"} disconnected, cleaning up");
+                            if (timers.TryGetValue(zonePosition, out Timer? timer))
+                            {
+                                timer.Destroy();
+                                _ = timers.Remove(zonePosition);
+                            }
+                            return;
+                        }
+
+                        if (times.TryGetValue(zonePosition, out float remainingTime))
+                        {
+                            remainingTime--;
+                            times[zonePosition] = remainingTime;
+                            DebugLog($"AddRaidBlock: Updated remaining time to {remainingTime} for player {player.displayName}");
+
+                            if (remainingTime <= 0)
+                            {
+                                DebugLog($"AddRaidBlock: Time expired for player {player.displayName}, removing block");
+                                RemoveRaidBlock(player, zonePosition);
+                                if (timers.TryGetValue(zonePosition, out Timer? timer))
+                                {
+                                    timer.Destroy();
+                                    _ = timers.Remove(zonePosition);
+                                }
+                            }
+                            else
+                            {
+                                UpdateRaidBlockUI(player, remainingTime);
+                            }
+                        }
+                        else
+                        {
+                            DebugLog($"AddRaidBlock: No remaining time for zone {zonePosition}, cleaning up");
+                            if (timers.TryGetValue(zonePosition, out Timer? timer))
+                            {
+                                timer.Destroy();
+                                _ = timers.Remove(zonePosition);
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        DebugLog($"AddRaidBlock: Error in timer callback - {ex.Message}");
+                    }
+                });
+                UpdateRaidBlockUI(player, duration);
+                DebugLog($"AddRaidBlock: Successfully added raid block for player {player.displayName}");
+            }
+            catch (Exception ex)
+            {
+                DebugLog($"AddRaidBlock: Error adding raid block - {ex.Message}");
+            }
         }
 
         private bool IsPlayerInRaidZone(BasePlayer player, out HashSet<Vector3> activeZones)
@@ -556,7 +670,7 @@ namespace Oxide.Plugins
                 }
 
                 float distance = Vector3.Distance(playerPosition, raidZone.Position);
-                if (distance <= config.RaidZoneRadius)
+                if (distance <= config.RaidZoneRadius / 2)
                 {
                     _ = activeZones.Add(raidZone.Position);
                 }
@@ -565,71 +679,50 @@ namespace Oxide.Plugins
             return activeZones.Count > 0;
         }
 
+        private void DebugLog(string message)
+        {
+            if (config.DebugMode)
+            {
+                PrintToConsole($"[RaidBlock Debug] {message}");
+            }
+        }
+
         private void CheckPlayerInZone(BasePlayer player)
         {
             if (player == null)
             {
+                DebugLog("CheckPlayerInZone: Player is null");
                 return;
             }
 
-            _ = IsPlayerInRaidZone(player, out HashSet<Vector3> activeZones);
+            DebugLog($"CheckPlayerInZone: Checking player {player.displayName}");
+            bool inZone = IsPlayerInRaidZone(player, out HashSet<Vector3> activeZones);
+            DebugLog($"CheckPlayerInZone: Player in zone: {inZone}, active zones count: {activeZones.Count}");
 
             ulong playerId = player.userID;
 
-            if (!playerZones.TryGetValue(playerId, out HashSet<Vector3>? value))
+            if (!playerZones.TryGetValue(playerId, out HashSet<Vector3>? zones))
             {
-                value = new HashSet<Vector3>();
-                playerZones[playerId] = value;
+                zones = new HashSet<Vector3>();
+                playerZones[playerId] = zones;
+                DebugLog($"CheckPlayerInZone: Created new zones list for player {player.displayName}");
             }
 
-            // Проверяем каждую активную зону
-            foreach (Vector3 zonePos in activeZones)
+            foreach (Vector3 zonePos in activeZones.Where(zonePos =>
+                !zones.Any(playerZonePos => Vector3.Distance(playerZonePos, zonePos) <= config.RaidZoneRadius / 2)))
             {
-                bool hasBlockInRange = false;
-                foreach (Vector3 playerZonePos in value)
-                {
-                    if (Vector3.Distance(playerZonePos, zonePos) <= config.RaidZoneRadius / 2)
-                    {
-                        hasBlockInRange = true;
-                        break;
-                    }
-                }
-
-                if (!hasBlockInRange)
-                {
-                    AddRaidBlock(player, zonePos, config.BlockDuration);
-                }
+                DebugLog($"CheckPlayerInZone: Adding new block for {player.displayName} at position {zonePos}");
+                AddRaidBlock(player, zonePos, config.BlockDuration);
             }
 
-            // Проверяем зоны, в которых игрок уже заблокирован
-            List<Vector3> zonesToRemove = new();
-            if (playerZones.TryGetValue(playerId, out _))
-            {
-                foreach (Vector3 playerZonePos in value)
-                {
-                    bool isInAnyActiveZone = false;
-                    foreach (Vector3 activeZonePos in activeZones)
-                    {
-                        if (
-                            Vector3.Distance(playerZonePos, activeZonePos)
-                            <= config.RaidZoneRadius / 2
-                        )
-                        {
-                            isInAnyActiveZone = true;
-                            break;
-                        }
-                    }
+            List<Vector3> zonesToRemove = zones
+                .Where(playerZonePos => !activeZones.Any(activeZonePos =>
+                    Vector3.Distance(playerZonePos, activeZonePos) <= config.RaidZoneRadius / 2))
+                .ToList();
 
-                    if (!isInAnyActiveZone)
-                    {
-                        zonesToRemove.Add(playerZonePos);
-                    }
-                }
-            }
-
-            // Удаляем блоки для зон, в которых игрока больше нет
             foreach (Vector3 zonePos in zonesToRemove)
             {
+                DebugLog($"CheckPlayerInZone: Removing block for {player.displayName} at position {zonePos}");
                 RemoveRaidBlock(player, zonePos, true);
             }
         }
@@ -710,11 +803,12 @@ namespace Oxide.Plugins
             if (sphere != null)
             {
                 sphere.enableSaving = false;
+                // Возвращаем оригинальный размер купола
                 sphere.currentRadius = config.RaidZoneRadius;
                 sphere.lerpRadius = config.RaidZoneRadius;
                 sphere.lerpSpeed = 1f;
 
-                // Устанавливаем размер сферы равным диаметру зоны
+                // Возвращаем оригинальный визуальный размер
                 float visualScale = config.RaidZoneRadius * 2f * config.VisualMultiplier;
                 sphere.transform.localScale = Vector3.one * visualScale;
                 sphere.UpdateScale();
@@ -772,8 +866,7 @@ namespace Oxide.Plugins
                 playerZones.TryGetValue(player.userID, out HashSet<Vector3>? zones)
                 && zones.Count > 0
                 && config.BlockedCommands.Exists(cmd =>
-                    cmd != null && message.StartsWith(cmd, StringComparison.OrdinalIgnoreCase)
-                )
+                    cmd != null && message.StartsWith(cmd, StringComparison.OrdinalIgnoreCase))
             )
             {
                 player.ChatMessage(GetMessage("RaidBlock.BlockedCommand", player));
@@ -831,6 +924,11 @@ namespace Oxide.Plugins
                 SaveConfig();
             }
 
+            if (CombatBlock == null)
+            {
+                PrintError("CombatBlock plugin not found!");
+            }
+
             _ = timer.Every(
                 1f,
                 () =>
@@ -852,6 +950,12 @@ namespace Oxide.Plugins
             );
         }
 
+        [HookMethod("HasRaidBlockUI")]
+        public bool HasRaidBlockUI(ulong playerID)
+        {
+            return uiManagers.ContainsKey(playerID);
+        }
+
         private void OnEntityTakeDamage(BaseCombatEntity entity, HitInfo info)
         {
             if (info?.damageTypes?.GetMajorityDamageType() == DamageType.Decay)
@@ -859,13 +963,7 @@ namespace Oxide.Plugins
                 return;
             }
 
-            if (
-                entity == null
-                || info == null
-                || info.Initiator == null
-                || info.damageTypes == null
-                || entity.transform == null
-            )
+            if (entity == null || info?.Initiator == null || info?.damageTypes == null || entity.transform == null)
             {
                 return;
             }
@@ -875,123 +973,118 @@ namespace Oxide.Plugins
                 return;
             }
 
-            // Проверяем, что у объекта есть владелец и что он будет разрушен этим уроном
-            if (entity.OwnerID != 0 && (entity.Health() <= info.damageTypes.Total()))
+            if (entity.OwnerID != 0 && entity.Health() <= info.damageTypes.Total() &&
+                (info.damageTypes.Has(DamageType.Explosion) || info.damageTypes.Has(DamageType.Bullet)))
             {
                 BasePlayer? victim = entity as BasePlayer;
+                Vector3 damagePosition = entity.transform.position;
 
-                if (
-                    info.damageTypes.Has(DamageType.Explosion)
-                    || info.damageTypes.Has(DamageType.Bullet)
-                )
+                RaidZone? existingZone = null;
+                foreach (RaidZone zone in activeRaidZones)
                 {
-                    Vector3 damagePosition = entity.transform.position;
-                    RaidZone? existingZone = null;
-
-                    // Проверяем, находится ли точка урона в существующей зоне
-                    foreach (RaidZone zone in activeRaidZones)
+                    float distance = Vector3.Distance(zone.Position, damagePosition);
+                    if (distance <= config.RaidZoneRadius / 2)
                     {
-                        float distance = Vector3.Distance(zone.Position, damagePosition);
-
-                        if (distance <= config.RaidZoneRadius / 2)
-                        {
-                            existingZone = zone;
-                            zone.ExpirationTime = Time.realtimeSinceStartup + config.BlockDuration;
-
-                            // Обновляем блоки всех игроков в этой зоне
-                            foreach (
-                                KeyValuePair<ulong, HashSet<Vector3>> playerEntry in playerZones
-                            )
-                            {
-                                BasePlayer player = BasePlayer.FindByID(playerEntry.Key);
-                                if (player != null)
-                                {
-                                    foreach (Vector3 pos in playerEntry.Value)
-                                    {
-                                        float playerZoneDistance = Vector3.Distance(
-                                            pos,
-                                            zone.Position
-                                        );
-
-                                        if (playerZoneDistance <= config.RaidZoneRadius / 2)
-                                        {
-                                            // Обновляем блок с полным временем
-                                            AddRaidBlock(
-                                                player,
-                                                zone.Position,
-                                                config.BlockDuration,
-                                                false
-                                            );
-                                            break;
-                                        }
-                                    }
-                                }
-                            }
-                            break;
-                        }
+                        existingZone = zone;
+                        zone.ExpirationTime = Time.realtimeSinceStartup + config.BlockDuration;
+                        break;
                     }
+                }
 
-                    // Создаем новую зону только если точка урона не в существующей зоне
-                    if (existingZone == null)
-                    {
-                        CreateRaidZone(damagePosition);
-                        existingZone = activeRaidZones[activeRaidZones.Count - 1];
-                    }
+                if (existingZone == null)
+                {
+                    CreateRaidZone(damagePosition);
+                    existingZone = activeRaidZones[activeRaidZones.Count - 1];
+                }
 
-                    // Добавляем блок атакующему
-                    AddRaidBlock(attacker, existingZone.Position, config.BlockDuration, false);
+                AddRaidBlock(attacker, existingZone.Position, config.BlockDuration, false);
 
-                    // Добавляем блок жертве, если это игрок
-                    if (victim != null && config.BlockOnReceiveRaidDamage)
-                    {
-                        AddRaidBlock(victim, existingZone.Position, config.BlockDuration, false);
-                    }
+                if (victim != null && config.BlockOnReceiveRaidDamage)
+                {
+                    AddRaidBlock(victim, existingZone.Position, config.BlockDuration, false);
                 }
             }
         }
 
         private bool CanBuild(Planner planner, Construction prefab, Construction.Target target)
         {
-            BasePlayer? player = planner?.GetOwnerPlayer();
-            if (player == null)
+            try
+            {
+                BasePlayer? player = planner?.GetOwnerPlayer();
+                if (player == null)
+                {
+                    return true;
+                }
+
+                // Проверяем активные зоны рейда
+                bool isInAnyRaidZone = false;
+                foreach (RaidZone raidZone in activeRaidZones)
+                {
+                    if (Time.realtimeSinceStartup > raidZone.ExpirationTime)
+                    {
+                        continue;
+                    }
+
+                    float distance = Vector3.Distance(target.position, raidZone.Position);
+                    if (distance <= config.RaidZoneRadius / 2)
+                    {
+                        isInAnyRaidZone = true;
+                        break;
+                    }
+                }
+
+                if (isInAnyRaidZone)
+                {
+                    player.ChatMessage(GetMessage("RaidBlock.NoBuild", player));
+                    return false;
+                }
+
+                return true;
+            }
+            catch (Exception)
             {
                 return true;
             }
-
-            if (
-                playerZones.TryGetValue(player.userID, out HashSet<Vector3>? zones)
-                && zones.Count > 0
-            )
-            {
-                player.ChatMessage(GetMessage("RaidBlock.BlockedBuild", player));
-                return false;
-            }
-
-            return true;
         }
 
-        private bool OnStructureUpgrade(
-            BuildingBlock block,
-            BasePlayer player,
-            BuildingGrade.Enum grade,
-            ulong skinID
-        )
+        private bool OnStructureUpgrade(BuildingBlock block, BasePlayer player, BuildingGrade.Enum grade, ulong skinID)
         {
-            if (player == null)
+            try
+            {
+                if (player == null || block == null)
+                {
+                    return true;
+                }
+
+                // Проверяем активные зоны рейда
+                bool isInAnyRaidZone = false;
+                foreach (RaidZone raidZone in activeRaidZones)
+                {
+                    if (Time.realtimeSinceStartup > raidZone.ExpirationTime)
+                    {
+                        continue;
+                    }
+
+                    float distance = Vector3.Distance(block.transform.position, raidZone.Position);
+                    if (distance <= config.RaidZoneRadius / 2)
+                    {
+                        isInAnyRaidZone = true;
+                        break;
+                    }
+                }
+
+                if (isInAnyRaidZone)
+                {
+                    player.ChatMessage(GetMessage("RaidBlock.BlockedUpgrade", player));
+                    return false;
+                }
+
+                return true;
+            }
+            catch (Exception)
             {
                 return true;
             }
-
-            if (
-                playerZones.TryGetValue(player.userID, out HashSet<Vector3>? zones)
-                && zones.Count > 0
-            )
-            {
-                player.ChatMessage(GetMessage("RaidBlock.BlockedUpgrade", player));
-                return false;
-            }
-
-            return true;
         }
     }
 }
