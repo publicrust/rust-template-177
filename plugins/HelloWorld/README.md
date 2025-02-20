@@ -1,4 +1,4 @@
-HelloWorld Plugin
+# HelloWorld Plugin
 
 HelloWorld is a simple demonstration plugin that shows basic Rust plugin functionality.
 This plugin serves as an excellent starting point for learning Oxide plugin development and includes basic chat command implementation.
