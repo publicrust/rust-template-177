@@ -1,4 +1,4 @@
-InstantFurnace Plugin
+# InstantFurnace Plugin
 
 InstantFurnace is a plugin that enables instant smelting in furnaces, making resource processing immediate and efficient.
 This plugin provides a simple yet powerful way to speed up the smelting process in all types of furnaces.
