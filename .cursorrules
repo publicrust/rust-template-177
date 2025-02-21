@@ -95,3 +95,6 @@ lang.RegisterMessages(new() { ["Welcome"] = "Welcome, {0}!" }, this);
 ```
 
 ✅ **Always ensure your plugin is structured, optimized, and up-to-date with Rust API changes.**
+
+**Community Update 177**
+This section references content from an older community update published on **14 September 2017**. As it is over a year old, certain elements might no longer be current or accurate. Use it for historical context and adapt to the latest developments in Rust and the Oxide API.
